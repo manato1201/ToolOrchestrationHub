@@ -40,6 +40,14 @@ hub/repo_sync.pyを追加した。13個の外部リポジトリ(hub/repos.yaml)�
 `git fetch`による差分検知のみ(ワーキングツリー非破壊、REPO_CHECK_INTERVAL_S間隔)。実際の
 取り込み(`git pull --ff-only`)はダッシュボードの「Sync」ボタンによる人間の明示トリガでのみ
 行う — Hubが無人で他プロジェクトのファイルを書き換えることはしない。
+
+v2.2: ユーザー追加要件「個別に起動できるようにしたい」に対応するhub/process_launcher.pyを
+追加した。13リポジトリはNext.js/Vite/Python/Docker Compose/C++ビルド等スタックが大きく
+異なるため、hub/repos.yamlのlaunch:に各リポジトリの実際の起動コマンドを暫定設定し、
+ダッシュボードの「Start」ボタンで新しいコンソールウィンドウにそのコマンドを起動する。
+Hubは起動を代行するだけで、起動後のプロセス管理(停止・ログ監視等)は行わない
+(監視のみ、各ツールの権限は奪わないという設計原則の延長)。起動コマンドを持たない
+対象(ビルド必須/IDE拡張等)には代わりに「Open folder」のみを提示する。
 """
 
 from __future__ import annotations
@@ -69,6 +77,7 @@ from ..alert_aggregator import (
 from ..alert_store import DEFAULT_DB_PATH, SqliteAlertStore
 from ..health.runner import LivenessMonitor
 from ..notify import default_sink
+from ..process_launcher import check_target_reachable, launch, open_folder
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
 
@@ -266,7 +275,20 @@ def create_app(
     app.state.repo_registry = repo_registry
     app.state.repo_sync_manager = repo_sync_manager
 
-    def _load_repo_rows() -> list[dict]:
+    async def _load_launch_rows(entry) -> list[dict]:
+        """ユーザー追加要件「個別に起動できるようにしたい」向け。各LaunchTargetの
+        疎通確認(urlがあるものだけ)を並行実行し、ブロッキングI/Oでイベントループを
+        ふさがないようToThreadへ逃がす。
+        """
+        async def _one(target) -> dict:
+            reachable = None
+            if target.url:
+                reachable = await asyncio.to_thread(check_target_reachable, target)
+            return {"name": target.name, "url": target.url, "reachable": reachable}
+
+        return await asyncio.gather(*(_one(t) for t in entry.launch_targets))
+
+    async def _load_repo_rows() -> list[dict]:
         statuses = repo_sync_manager.all_statuses()
         rows = []
         for entry in repo_registry.all():
@@ -284,16 +306,18 @@ def create_app(
                     "has_local_changes": status.has_local_changes if status else None,
                     "error": status.error if status else None,
                     "can_sync": status.can_sync if status else False,
+                    "launch_targets": await _load_launch_rows(entry),
+                    "launch_note": entry.launch_note,
                 }
             )
         return rows
 
-    def _load_dashboard_context(refresh_interval_s: int) -> dict:
+    async def _load_dashboard_context(refresh_interval_s: int) -> dict:
         context = {
             "registry_rows": data_sources.load_registry_status(registry, monitor),
             "registry_source_path": str(registry.source_path) if registry.source_path else "—",
             "alert_rows": data_sources.load_alert_summary(aggregator),
-            "repo_rows": _load_repo_rows(),
+            "repo_rows": await _load_repo_rows(),
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             "refresh_interval_s": refresh_interval_s,
             "asset_version": _static_asset_version(),
@@ -329,7 +353,7 @@ def create_app(
     async def dashboard(request: Request, refresh: int = DEFAULT_REFRESH_INTERVAL_S):
         # 常時表示しておく監視画面向けに既定でmeta refreshする。?refresh=0で無効化できる。
         return templates.TemplateResponse(
-            request, "index.html", _load_dashboard_context(refresh)
+            request, "index.html", await _load_dashboard_context(refresh)
         )
 
     @app.get("/api/registry")
@@ -437,13 +461,13 @@ def create_app(
 
     @app.get("/api/repos")
     async def api_repos() -> list[dict]:
-        return _load_repo_rows()
+        return await _load_repo_rows()
 
     @app.post("/api/repos/check")
     async def api_repos_check() -> list[dict]:
         """13リポジトリ全件のgit fetch(差分検知)を即座に実行する。ワーキングツリーは変更しない。"""
         await repo_sync_manager.check_all()
-        return _load_repo_rows()
+        return await _load_repo_rows()
 
     @app.post("/api/repos/{repo_id}/sync")
     async def api_repo_sync(repo_id: str) -> dict:
@@ -459,6 +483,34 @@ def create_app(
         if not result.ok:
             raise HTTPException(status_code=409, detail=result.message)
         return {"repo_id": result.repo_id, "ok": result.ok, "message": result.message}
+
+    @app.post("/api/repos/{repo_id}/launch/{target_index}")
+    async def api_repo_launch(repo_id: str, target_index: int) -> dict:
+        """ユーザー追加要件「個別に起動できるようにしたい」の受け口。
+
+        target_indexはhub/repos.yamlのlaunch:配列の順序に対応する(HTTPリクエストから
+        任意のシェルコマンドは一切受け取らない。repos.yamlに定義済みの固定コマンドのみ実行する)。
+        """
+        entry = repo_registry.get(repo_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown repo_id: {repo_id}")
+        if not (0 <= target_index < len(entry.launch_targets)):
+            raise HTTPException(status_code=404, detail=f"unknown launch target index: {target_index}")
+        result = await asyncio.to_thread(launch, entry, entry.launch_targets[target_index], PROJECT_ROOT)
+        if not result.ok:
+            raise HTTPException(status_code=500, detail=result.message)
+        return {"repo_id": repo_id, "ok": result.ok, "message": result.message, "pid": result.pid}
+
+    @app.post("/api/repos/{repo_id}/open-folder")
+    async def api_repo_open_folder(repo_id: str) -> dict:
+        """リポジトリのローカルフォルダをエクスプローラで開く(全リポジトリ共通の最低限のアクション)。"""
+        entry = repo_registry.get(repo_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown repo_id: {repo_id}")
+        result = await asyncio.to_thread(open_folder, entry, PROJECT_ROOT)
+        if not result.ok:
+            raise HTTPException(status_code=500, detail=result.message)
+        return {"repo_id": repo_id, "ok": result.ok, "message": result.message}
 
     return app
 
