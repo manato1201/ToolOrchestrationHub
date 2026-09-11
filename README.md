@@ -115,3 +115,41 @@ curl -X POST http://127.0.0.1:8790/api/repos/check
 # 特定リポジトリの差分を取り込む(git pull --ff-only、dirty/非ff-onlyなら409)
 curl -X POST http://127.0.0.1:8790/api/repos/asset_data_insight_suite/sync
 ```
+
+## v2.2: 13リポジトリを個別に起動
+
+ユーザー追加要件「個別に起動できるようにしたい」に対応しました。13リポジトリは
+Next.js/Vite/Python/Docker Compose/C++ビルド等スタックが大きく異なるため、各リポジトリの
+README/package.json/pyproject.tomlを調査し、`hub/repos.yaml`の`launch:`に実際の起動コマンドを
+暫定設定しています。
+
+- **単一コマンドで起動できるもの**(AssetDataInsightSuite, VLMAutoReplayTool,
+  The-Algorithm-Illustrated, ColorEncyclopedia, MagicCircleGenerator, CADGPUInferenceModeling):
+  Startボタン1つ
+- **複数プロセスの起動が要るもの**(WeatherGeoBridge: Worker/Web/MCP、
+  VisualRegressionQATool: Backend/Frontend、LoreDesktopAndWebSystem: Docker Compose):
+  対象ごとにStartボタンを分けている
+- **明確な起動コマンドが無いもの**(RAGReel: C++ビルド必須、FlowchartVisualizerExtension:
+  IDE拡張、LearningQuickDraw/LearningFluidEngine: スクリプト集): Startボタンは出さず、
+  「Open folder」のみ提示する
+
+Hub(`hub/process_launcher.py`)は「起動ボタンを押したら新しいコンソールウィンドウで
+そのコマンドを実行する」という、人間が手動でターミナルを開く操作を代行するだけに留めます。
+起動後のプロセス管理(停止・ログ監視・再起動)は行わず、開いたコンソール自体をユーザーが
+直接操作する前提です。実行するコマンドはHTTPリクエストからではなく`hub/repos.yaml`の
+固定値のみを使うため、任意のシェルコマンドを注入できる経路はありません。
+
+```bash
+# MagicCircleGeneratorのdevサーバーを起動(hub/repos.yamlのlaunch[0]に対応)
+curl -X POST http://127.0.0.1:8790/api/repos/magic_circle_generator/launch/0
+
+# 起動コマンドの無いリポジトリでもフォルダは開ける
+curl -X POST http://127.0.0.1:8790/api/repos/rag_reel/open-folder
+```
+
+**既知の制約**: 「running/stopped」バッジは`launch.url`への疎通確認のみで判定しており、
+プロセスの識別はしていません。実機確認で、MagicCircleGeneratorのdevサーバー(Vite既定ポート
+5173)を起動した状態でVisualRegressionQATool(Frontendも同じ5173がデフォルト)を見ると、
+実際には起動していないのに「running」と誤表示されることを確認しています。複数リポジトリが
+同じ既定ポートを使う組み合わせでは、この誤検知が起こり得ることをダッシュボード上にも注記して
+います。

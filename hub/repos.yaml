@@ -6,6 +6,18 @@
 #
 # Hubはここに載っているリポジトリに対して、読み取り専用のgit fetch(差分検知)を
 # 定期実行するのみで、実際の取り込み(git pull)はダッシュボードの手動トリガでのみ行う。
+#
+# launch: ユーザー追加要件「個別に起動できるようにしたい」の対象。各リポジトリの
+# README/package.json/pyproject.toml等から実際の起動コマンドを調査して設定した(暫定)。
+# 13リポジトリは技術スタックが大きく異なるため、対応は3パターンに分かれる:
+#   1. 単一コマンドで起動できるもの(AssetDataInsightSuite等) -> launch 1件
+#   2. 複数プロセスの起動が要るもの(WeatherGeoBridge等) -> launch 複数件
+#   3. 明確な起動コマンドが無いもの(RAGReel等、ビルド/IDE拡張/スクリプト集)
+#      -> launchは空、launch_noteに理由を記載(ダッシュボードは代わりに
+#         「フォルダを開く」のみ提示する)
+# 各コマンドはそのリポジトリの初回セットアップ(venv作成・npm install等)が
+# 済んでいる前提。未セットアップの場合、開いたコンソールにエラーがそのまま表示される
+# (Hub側で隠蔽・自動セットアップはしない)。
 
 repos:
   - repo_id: asset_data_insight_suite
@@ -13,75 +25,144 @@ repos:
     local_path: "../AssetDataInsightSuite"
     remote_url: "https://github.com/manato1201/AssetDataInsightSuite.git"
     branch: main
+    launch:
+      - name: "Web GUI"
+        command: "uv run python -m webapp.app --db insight.db --port 5000"
+        cwd: "."
+        url: "http://127.0.0.1:5000"
 
   - repo_id: vlm_auto_replay_tool
     display_name: "VLMAutoReplayTool"
     local_path: "../VLMAutoReplayTool"
     remote_url: "https://github.com/manato1201/VLMAutoReplayTool.git"
     branch: main
+    launch:
+      - name: "GUI"
+        command: "uv run --extra dev --extra gui python -m vlm_auto_replay.gui"
+        cwd: "."
+        url: "http://127.0.0.1:8765"
 
   - repo_id: weather_geo_bridge
     display_name: "WeatherGeoBridge"
     local_path: "../WeatherGeoBridge"
     remote_url: "https://github.com/manato1201/WeatherGeoBridge.git"
     branch: main
+    launch:
+      - name: "Worker (wrangler dev)"
+        command: "npx wrangler dev --port 8788"
+        cwd: "worker"
+        url: "http://127.0.0.1:8788"
+      - name: "Web dashboard"
+        command: "npm run dev"
+        cwd: "web"
+        url: "http://localhost:3000"
+      - name: "MCP server"
+        command: "python -m mcp_server.server"
+        cwd: "."
+        # WEATHERGEOBRIDGE_WORKER_URL等の環境変数が別途必要(README参照)。urlは無し(常駐ポートを持たない)。
+    launch_note: "3プロセス構成(Worker/Web/MCP)。MCP serverはWorkerのURL等の環境変数を別途設定する必要がある。"
 
   - repo_id: the_algorithm_illustrated
     display_name: "The-Algorithm-Illustrated"
     local_path: "../The-Algorithm-Illustrated"
     remote_url: "https://github.com/manato1201/The-Algorithm-Illustrated.git"
     branch: main
+    launch:
+      - name: "Dev server"
+        command: "npm run dev"
+        cwd: "."
+        url: "http://localhost:3000"
 
   - repo_id: color_encyclopedia
     display_name: "ColorEncyclopedia"
     local_path: "../ColorEncyclopedia"
     remote_url: "https://github.com/manato1201/ColorEncyclopedia.git"
     branch: main
+    launch:
+      - name: "Dev server"
+        command: "npm run dev"
+        cwd: "."
+        url: "http://localhost:3000"
 
   - repo_id: rag_reel
     display_name: "RAGReel"
     local_path: "../RAGReel"
     remote_url: "https://github.com/manato1201/RAGReel.git"
     branch: main
+    launch: []
+    launch_note: "C++/Qtプロジェクト。ビルドが必要(cmake --preset default && cmake --build --preset default)。ビルド後にbuild/engine/RAGReel.exeを実行する。単一の起動コマンドは無い。"
 
   - repo_id: visual_regression_qa_tool
     display_name: "VisualRegressionQATool"
     local_path: "../VisualRegressionQATool"
     remote_url: "https://github.com/manato1201/VisualRegressionQATool.git"
     branch: main
+    launch:
+      - name: "Backend"
+        command: "uv run uvicorn app.main:app --port 8000 --reload"
+        cwd: "backend"
+        url: "http://localhost:8000/api/health"
+      - name: "Frontend"
+        command: "npm run dev"
+        cwd: "frontend"
+        url: "http://localhost:5173"
+    launch_note: "先にBackendを起動してからFrontendを起動すること(CORSがport 5173に固定されている)。"
 
   - repo_id: magic_circle_generator
     display_name: "MagicCircleGenerator"
     local_path: "../MagicCircleGenerator"
     remote_url: "https://github.com/manato1201/MagicCircleGenerator.git"
     branch: main
+    launch:
+      - name: "Dev server"
+        command: "npm run dev"
+        cwd: "."
+        url: "http://localhost:5173"
 
   - repo_id: flowchart_visualizer_extension
     display_name: "FlowchartVisualizerExtension"
     local_path: "../FlowchartVisualizerExtension"
     remote_url: "https://github.com/manato1201/FlowchartVisualizerExtension.git"
     branch: main
+    launch: []
+    launch_note: "VSCode/Rider/Visual Studio拡張。npm run buildでビルドし、各IDE側(VSCodeのF5=Extension Development Host等)から起動する。単一の起動コマンドは無い。"
 
   - repo_id: lore_desktop_and_web_system
     display_name: "LoreDesktopAndWebSystem"
     local_path: "../LoreDesktopAndWebSystem"
     remote_url: "https://github.com/manato1201/LoreDesktopAndWebSystem.git"
     branch: main
+    launch:
+      - name: "Docker Compose (api + web)"
+        command: "docker compose up"
+        cwd: "."
+        url: "http://localhost:3000"
+    launch_note: "docker-compose.ymlが起動するのはlorehub-api(4000)/lorehub-web(3000)のみ。loreforge-client/loreforge-server-admin(Qt6デスクトップアプリ)は対象外で、別途ビルド・パッケージングが必要。"
 
   - repo_id: learning_quick_draw
     display_name: "LearningQuickDraw"
     local_path: "../LearningQuickDraw"
     remote_url: "https://github.com/manato1201/LearningQuickDraw.git"
     branch: main
+    launch: []
+    launch_note: "研究・ツール集(C++/Blender/Houdini/AEプラグイン等)。フェーズ毎に個別のビルド/インストール手順が必要で、単一の起動コマンドは無い。"
 
   - repo_id: learning_fluid_engine
     display_name: "LearningFluidEngine"
     local_path: "../LearningFluidEngine"
     remote_url: "https://github.com/manato1201/LearningFluidEngine.git"
     branch: main
+    launch: []
+    launch_note: "スタンドアロンスクリプト集。単一の起動コマンドは無い(FluidKit/viewer/index.htmlをブラウザで直接開く等、フェーズ毎に手順が異なる)。"
 
   - repo_id: cad_gpu_inference_modeling
     display_name: "CADGPUInferenceModeling"
     local_path: "../CADGPUInferenceModeling"
     remote_url: "https://github.com/manato1201/CADGPUInferenceModeling.git"
     branch: main
+    launch:
+      - name: "API server"
+        command: "uvicorn api:app --reload --host 0.0.0.0 --port 8000"
+        cwd: "."
+        url: "http://localhost:8000"
+    launch_note: "事前にpython -m venv .venv && pip install -r requirements.txtでの環境構築が必要。cli.pyは1回限りの変換用CLIで常駐サービスではない。"

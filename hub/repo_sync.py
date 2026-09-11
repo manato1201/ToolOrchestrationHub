@@ -34,12 +34,30 @@ class RepoRegistryError(Exception):
 
 
 @dataclass(frozen=True)
+class LaunchTarget:
+    """ユーザー追加要件「個別に起動できるようにしたい」に対応する起動コマンド1件。
+
+    13リポジトリは技術スタックが大きく異なり(Next.js/Vite/Python/Docker Compose等)、
+    かつWeatherGeoBridge・VisualRegressionQATool・LoreDesktopAndWebSystemのように
+    複数プロセスの起動が要る対象もあるため、1リポジトリが複数のLaunchTargetを
+    持てるようにする(例: 「Backend」「Frontend」を別ボタンにする)。
+    """
+
+    name: str
+    command: str  # シェルで実行するコマンド文字列(repos.yaml側で定義済みの固定値のみ)
+    cwd: str = "."  # local_pathからの相対パス
+    url: Optional[str] = None  # 起動確認(疎通チェック)に使うURL。無ければ確認しない
+
+
+@dataclass(frozen=True)
 class RepoEntry:
     repo_id: str
     display_name: str
     local_path: str  # Hub(このリポジトリ)のルートからの相対パス、または絶対パス
     remote_url: str
     branch: str = "main"
+    launch_targets: tuple[LaunchTarget, ...] = ()
+    launch_note: Optional[str] = None  # 起動コマンドが無い対象向けの説明(ビルド要/IDE拡張等)
 
     @classmethod
     def from_dict(cls, raw: dict) -> "RepoEntry":
@@ -47,12 +65,24 @@ class RepoEntry:
         missing = required - raw.keys()
         if missing:
             raise RepoRegistryError(f"RepoEntryに必須フィールドが不足しています: {missing} (raw={raw})")
+        launch_raw = raw.get("launch") or []
+        launch_targets = tuple(
+            LaunchTarget(
+                name=lt["name"],
+                command=lt["command"],
+                cwd=lt.get("cwd", "."),
+                url=lt.get("url"),
+            )
+            for lt in launch_raw
+        )
         return cls(
             repo_id=raw["repo_id"],
             display_name=raw["display_name"],
             local_path=raw["local_path"],
             remote_url=raw["remote_url"],
             branch=raw.get("branch", "main"),
+            launch_targets=launch_targets,
+            launch_note=raw.get("launch_note"),
         )
 
     def resolve_path(self, repo_root: Path) -> Path:
