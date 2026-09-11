@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProfilingTool alert contract",
+  "description": "ToolOrchestrationHub設計書が購読するメトリクス/アラート発行契約。本書ではこのスキーマの確定のみが責務(Hub側の実装はProfilingTool側のスコープ外)。",
+  "type": "object",
+  "required": ["target", "metric", "value", "threshold", "severity", "timestamp_us", "run_id"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "enum": ["sound_middleware", "vlm_auto_replay", "dynamic_gi", "videofactory"]
+    },
+    "metric": {
+      "type": "string",
+      "examples": ["underrun_count", "composite_span_p95_ms"]
+    },
+    "value": { "type": "number" },
+    "threshold": { "type": "number" },
+    "severity": { "type": "string", "enum": ["warning", "critical"] },
+    "timestamp_us": { "type": "number" },
+    "run_id": { "type": "string" }
+  },
+  "additionalProperties": false
+}

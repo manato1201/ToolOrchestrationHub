@@ -1,2 +1,117 @@
 # ToolOrchestrationHub
 今まで作ってきたシステム・機能に対しての中継兼モニタリングし、使用者にとって使いやすくするシステムの開発を目的としたリポジトリです
+
+設計は [ToolOrchestrationHub_DESIGN.md](ToolOrchestrationHub_DESIGN.md) を参照してください。
+ダッシュボードのビジュアルトークンは [ToolOrchestrationHub_UI_DESIGN.md](ToolOrchestrationHub_UI_DESIGN.md)(MongoDB風デザイントークン)を参照として使用しています。
+
+## 構成
+
+- `hub/registry.py` / `hub/registry.yaml` — Phase1: 12ツールの台帳(`ToolEntry`/`ToolRegistry`)。ホットリロード対応(後述)
+- `hub/health/` — Phase2: `http_bridge_check` / `rpc_check` / `ci_pipeline_check` とそれらを束ねる `LivenessMonitor`
+- `hub/alert_aggregator.py` — Phase3: `AlertRecord`の正規化・dedup(`upsert_alert`)・解消(`resolve_alert`)
+- `hub/alert_store.py` — アラート履歴のSQLite永続化(`.hub_state/alerts.sqlite3`、`AlertAggregator`のオプション)
+- `hub/notify.py` — 新規/解消アラートのローカル通知チャネル(v1: Windowsトースト通知のみ)
+- `hub/repo_sync.py` / `hub/repos.yaml` — 外部13リポジトリのgit差分検知・同期(後述)
+- `hub/dashboard/` — Phase4: FastAPI製の読み取り専用ダッシュボード(Registry状態・Alert一覧・各種アーティファクト・Profiling・Repositoriesをミラー表示)
+- `profiling_tool/` — ToolOrchestrationHubの**サブ機能**として統合された計測基盤(後述)
+
+## セットアップ・実行
+
+```bash
+uv sync --extra dev
+uv run pytest -q
+uv run hub  # http://127.0.0.1:8790 でダッシュボードを起動
+```
+
+`hub/registry.yaml`内の`poll_interval_s`・`check_params`(ハートビート/CI間隔など)は暫定値です。各ツール側の実装が固まり次第、このファイルのみを更新すれば追従できます(Hub自身の内部アーキテクチャは変更不要)。
+
+## v1.1で追加した機能
+
+DESIGN.mdのPhase0-4確定後、実際に使う上でのギャップを埋めるために追加した拡張。Hub自身の内部アーキテクチャ(Registry/Relay/AlertAggregatorの3層構成)は変更していない。
+
+- **通知**: 新規open/resolve確定のタイミングでWindowsトースト通知を送出する(既定でseverity `warn`以上)。非Windows環境やwinotify未インストール時は自動でno-opになる。
+- **registry.yamlのホットリロード**: 5秒間隔でmtimeを監視し、変更があれば自動反映する。ダッシュボードの「Reload registry.yaml」ボタン、または`POST /api/registry/reload`で即時トリガも可能
+- **アラート履歴の永続化**: `.hub_state/alerts.sqlite3`にAlertRecordを保存し、Hub再起動後も履歴を保持する。resolved後30日経過したレコードは1時間毎に自動prune
+- **ダッシュボードの自動更新**: 既定で20秒毎にmeta refreshする(`/?refresh=0`で停止、`/?refresh=N`で間隔変更)
+- **liveness信号の受信エンドポイント**: observed_only/cli_batch系ツール(`category`に関わらずrpc_check/ci_pipeline_check対象)からの受動的な信号受信口。Hub側から能動的に接続しにいく設計ではないため、各ツール側からこのエンドポイントを叩いてもらう必要がある
+
+  ```bash
+  # rpc_check対象(例: sound_middleware)からのハートビート
+  curl -X POST http://127.0.0.1:8790/api/heartbeat/sound_middleware
+
+  # ci_pipeline_check対象(例: research_collector)からのCI成功通知
+  curl -X POST http://127.0.0.1:8790/api/ci-success/research_collector
+  ```
+
+  対象tool_idの`health_check`と一致しない場合は400、未登録のtool_idは404を返す。
+
+## v1.2で追加した機能
+
+DESIGN.md Phase3は「Profiling Tool(主経路)/Visual Regression QA Tool/Asset Data Insight Suite/
+Hub自身のヘルスチェックの4ソースをAlertRecordへ正規化する」としていましたが、実際に配線されて
+いたのはHub自身のヘルスチェック由来のみで、他3ソース用の`normalize_from_*`関数は定義済みのまま
+呼び出し口がありませんでした。受信エンドポイントを追加し、4ソース全てが実際にAlertAggregatorへ
+到達するようにしました。
+
+```bash
+# Profiling Tool(主経路)からの生アラート
+curl -X POST http://127.0.0.1:8790/api/alerts/profiling-tool \
+  -H "Content-Type: application/json" \
+  -d '{"signature": "gpu_frame_budget_exceeded", "severity": "critical", "message": "frame budget exceeded"}'
+
+# Visual Regression QA Toolからの1件分の評価結果
+curl -X POST http://127.0.0.1:8790/api/alerts/visual-regression-qa \
+  -H "Content-Type: application/json" \
+  -d '{"case_id": "battle_hud_overlay", "passed": false, "message": "pixel diff 3.4%"}'
+
+# Asset Data Insight Suiteのreport_manifest.json 1エントリ分
+curl -X POST http://127.0.0.1:8790/api/alerts/asset-data-insight \
+  -H "Content-Type: application/json" \
+  -d '{"asset_id": "characters/hero_base_mesh", "severity": "warn", "message": "polycount budget exceeded"}'
+```
+
+`severity: "info"`(またはVRQAの`passed: true`)を送ると、同一シグネチャのopenアラートを
+resolveする信号として扱います(Research-Collectorの自動closeと同型のライフサイクル)。
+
+## v2.0: ProfilingToolをサブ機能として統合
+
+「ToolOrchestrationHubが主軸、ProfilingToolはサブ機能」という方針のもと、別リポジトリだった
+ProfilingTool(ProfilingTool_DESIGN.mdに基づく計測基盤: span/counter/event/GpuTimestampQueryの
+コアSDK + VLM/Sound/GI/VideoFactory向け4アダプタ + 集計 + アラート)を`profiling_tool/`
+サブパッケージとして本リポジトリに統合しました。
+
+- 日常利用はHub本体のダッシュボード(`uv run hub`、ポート8790)の**Profiling**セクションが主。
+  同一プロセス内で`profiling_tool.dashboard.data_sources`を直接呼び出し、最新runのlatency/usage
+  サマリを表示します(profiling_tool側の不具合でHub本体が落ちないよう例外は握りつぶします)
+- トレースを詳細に掘り下げたい場合は`uv run profiling-dashboard`(ポート8791)のスタンドアロン
+  版も引き続き使えます(バックエンド表示・サービス連携状況・実データサンプル等)
+- デモ用トレースの生成: `uv run python profiling_tool/scripts/generate_demo_traces.py`
+- 実装時に設計書側の欠陥(sound_adapterのダウンサンプル判定がunderrun検知を巻き込んでいた)と、
+  Jinja2の`tojson`が非ASCII文字を`\uXXXX`エスケープする不具合(バックエンド・データ表示パネルの
+  文字化けにつながる)を発見し修正しています。
+
+## v2.1: 13リポジトリのgit差分反映・同期
+
+ユーザー追加要件「gitの最新の状態を反映・差分ダウンロードという形で管理」に対応しました。
+`hub/repos.yaml`に登録した13個の外部リポジトリ(AssetDataInsightSuite, VLMAutoReplayTool,
+WeatherGeoBridge, The-Algorithm-Illustrated, ColorEncyclopedia, RAGReel,
+VisualRegressionQATool, MagicCircleGenerator, FlowchartVisualizerExtension,
+LoreDesktopAndWebSystem, LearningQuickDraw, LearningFluidEngine, CADGPUInferenceModeling)
+に対して、Hubのダッシュボードの**Repositories**セクションが状態を表示します。
+
+安全性の方針を2段階に分けています:
+
+- **自動実行するのは`git fetch`(差分検知)のみ**。ワーキングツリーは一切変更しません。
+  既定30分間隔でバックグラウンド実行し、「Check all」ボタンで即時トリガもできます
+- **実際の取り込み(`git pull --ff-only`)は人間がダッシュボードの「Sync」ボタンを押した
+  ときのみ**実行します。Hubが無人で他プロジェクトのファイルを書き換えることはありません。
+  ローカルに未コミットの変更がある場合(dirty)や、履歴が分岐していてfast-forwardできない
+  場合は同期を拒否します(他プロジェクトの作業を破壊しない)
+
+```bash
+# 全リポジトリの差分検知を即時実行(git fetchのみ)
+curl -X POST http://127.0.0.1:8790/api/repos/check
+
+# 特定リポジトリの差分を取り込む(git pull --ff-only、dirty/非ff-onlyなら409)
+curl -X POST http://127.0.0.1:8790/api/repos/asset_data_insight_suite/sync
+```
