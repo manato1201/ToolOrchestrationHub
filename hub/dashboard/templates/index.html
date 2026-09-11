@@ -215,13 +215,18 @@
         <button id="repos-check-btn" class="btn-reload" type="button">Check all</button>
       </div>
       <div class="source-meta" style="margin-bottom: var(--space-16);">source: hub/repos.yaml(git fetchのみ自動実行、ワーキングツリーへの取り込みはSyncボタンでのみ行う)</div>
+      <div class="data-warning">
+        Startボタンは新しいコンソールでコマンドを起動するだけで、起動後のプロセス管理(停止・ログ監視)は行いません。
+        「running/stopped」バッジはURLへの疎通確認のみで判定しており、複数リポジトリが同じ既定ポート(例: Viteの5173)を
+        使っている場合、別プロジェクトの起動を誤って「running」と表示することがあります。
+      </div>
       <div class="card-base">
         {% if repo_rows|length == 0 %}
           <p class="empty">登録リポジトリがありません。</p>
         {% else %}
         <table>
           <thead>
-            <tr><th>Repository</th><th>Branch</th><th>Status</th><th>Checked</th><th></th></tr>
+            <tr><th>Repository</th><th>Branch</th><th>Status</th><th>Checked</th><th>Sync</th><th>Launch</th></tr>
           </thead>
           <tbody>
             {% for r in repo_rows %}
@@ -246,6 +251,22 @@
               <td>
                 {% if r.can_sync %}
                   <button class="btn-reload repo-sync-btn" data-repo-id="{{ r.repo_id }}" type="button">Sync</button>
+                {% endif %}
+              </td>
+              <td>
+                <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                  {% for lt in r.launch_targets %}
+                    <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" type="button">
+                      Start: {{ lt.name }}
+                      {% if lt.reachable is not none %}
+                        {% if lt.reachable %}<span class="pill pill-up">running</span>{% else %}<span class="pill pill-unknown">stopped</span>{% endif %}
+                      {% endif %}
+                    </button>
+                  {% endfor %}
+                  <button class="btn-reload repo-open-folder-btn" data-repo-id="{{ r.repo_id }}" type="button">Open folder</button>
+                </div>
+                {% if r.launch_note %}
+                  <div class="source-meta" style="margin-top:4px; max-width:320px;">{{ r.launch_note }}</div>
                 {% endif %}
               </td>
             </tr>
@@ -316,6 +337,49 @@
           target.disabled = false;
           target.textContent = "Sync";
           alert(`同期に失敗しました: ${err}`);
+        }
+      });
+    });
+
+    document.querySelectorAll(".repo-launch-btn").forEach((btn) => {
+      const originalText = btn.textContent;
+      btn.addEventListener("click", async (event) => {
+        const target = event.currentTarget;
+        const repoId = target.dataset.repoId;
+        const targetIndex = target.dataset.targetIndex;
+        target.disabled = true;
+        target.textContent = "Starting...";
+        try {
+          const res = await fetch(`/api/repos/${repoId}/launch/${targetIndex}`, { method: "POST" });
+          const body = await res.json();
+          if (!res.ok) {
+            throw new Error(body.detail || `HTTP ${res.status}`);
+          }
+          target.textContent = "Started";
+          setTimeout(() => window.location.reload(), 1500);
+        } catch (err) {
+          target.disabled = false;
+          target.textContent = originalText;
+          alert(`起動に失敗しました: ${err}`);
+        }
+      });
+    });
+
+    document.querySelectorAll(".repo-open-folder-btn").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        const target = event.currentTarget;
+        const repoId = target.dataset.repoId;
+        target.disabled = true;
+        try {
+          const res = await fetch(`/api/repos/${repoId}/open-folder`, { method: "POST" });
+          const body = await res.json();
+          if (!res.ok) {
+            throw new Error(body.detail || `HTTP ${res.status}`);
+          }
+        } catch (err) {
+          alert(`フォルダを開けませんでした: ${err}`);
+        } finally {
+          target.disabled = false;
         }
       });
     });

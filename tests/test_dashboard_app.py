@@ -600,3 +600,134 @@ def test_dashboard_renders_repositories_section(tmp_path):
     with TestClient(app) as client:
         res = client.get("/")
         assert "sample" in res.text
+
+
+def _write_repos_yaml_with_launch(tmp_path, local_dir_name: str, remote_path) -> str:
+    repos_path = tmp_path / "repos.yaml"
+    local_path = (tmp_path / local_dir_name).resolve()
+    repos_path.write_text(
+        f"""
+repos:
+  - repo_id: sample
+    display_name: "Sample"
+    local_path: "{str(local_path).replace(chr(92), '/')}"
+    remote_url: "{str(remote_path).replace(chr(92), '/')}"
+    branch: main
+    launch:
+      - name: "Dev server"
+        command: "npm run dev"
+        cwd: "."
+        url: "http://127.0.0.1:1"
+    launch_note: "test note"
+""",
+        encoding="utf-8",
+    )
+    return str(repos_path)
+
+
+def test_repo_launch_endpoint_invokes_process_launcher(tmp_path, monkeypatch):
+    from hub.process_launcher import LaunchResult
+
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    captured = {}
+
+    def fake_launch(entry, target, repo_root):
+        captured["entry"] = entry
+        captured["target"] = target
+        return LaunchResult(ok=True, message="started", pid=999)
+
+    monkeypatch.setattr(app_module, "launch", fake_launch)
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        res = client.post("/api/repos/sample/launch/0")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["pid"] == 999
+
+    assert captured["entry"].repo_id == "sample"
+    assert captured["target"].name == "Dev server"
+
+
+def test_repo_launch_endpoint_rejects_unknown_target_index(tmp_path):
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        res = client.post("/api/repos/sample/launch/99")
+        assert res.status_code == 404
+
+
+def test_repo_launch_endpoint_returns_500_when_launcher_fails(tmp_path, monkeypatch):
+    from hub.process_launcher import LaunchResult
+
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    monkeypatch.setattr(
+        app_module, "launch", lambda entry, target, repo_root: LaunchResult(ok=False, message="boom")
+    )
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        res = client.post("/api/repos/sample/launch/0")
+        assert res.status_code == 500
+
+
+def test_repo_open_folder_endpoint_invokes_process_launcher(tmp_path, monkeypatch):
+    from hub.process_launcher import LaunchResult
+
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    captured = {}
+
+    def fake_open_folder(entry, repo_root):
+        captured["entry"] = entry
+        return LaunchResult(ok=True, message="opened")
+
+    monkeypatch.setattr(app_module, "open_folder", fake_open_folder)
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        res = client.post("/api/repos/sample/open-folder")
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+    assert captured["entry"].repo_id == "sample"
+
+
+def test_dashboard_renders_launch_buttons_and_note(tmp_path):
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        res = client.get("/")
+        assert "Start: Dev server" in res.text
+        assert "Open folder" in res.text
+        assert "test note" in res.text
