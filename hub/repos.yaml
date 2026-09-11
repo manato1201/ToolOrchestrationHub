@@ -1,0 +1,87 @@
+# hub/repos.yaml
+#
+# ユーザー追加要件「gitの最新の状態を反映・差分ダウンロードという形で管理」の対象13リポジトリ。
+# local_pathはこのリポジトリ(ToolOrchestrationHub)のルートからの相対パス。
+# いずれもDesktop\GameDevelopment直下の兄弟フォルダとして既にクローン済み。
+#
+# Hubはここに載っているリポジトリに対して、読み取り専用のgit fetch(差分検知)を
+# 定期実行するのみで、実際の取り込み(git pull)はダッシュボードの手動トリガでのみ行う。
+
+repos:
+  - repo_id: asset_data_insight_suite
+    display_name: "AssetDataInsightSuite"
+    local_path: "../AssetDataInsightSuite"
+    remote_url: "https://github.com/manato1201/AssetDataInsightSuite.git"
+    branch: main
+
+  - repo_id: vlm_auto_replay_tool
+    display_name: "VLMAutoReplayTool"
+    local_path: "../VLMAutoReplayTool"
+    remote_url: "https://github.com/manato1201/VLMAutoReplayTool.git"
+    branch: main
+
+  - repo_id: weather_geo_bridge
+    display_name: "WeatherGeoBridge"
+    local_path: "../WeatherGeoBridge"
+    remote_url: "https://github.com/manato1201/WeatherGeoBridge.git"
+    branch: main
+
+  - repo_id: the_algorithm_illustrated
+    display_name: "The-Algorithm-Illustrated"
+    local_path: "../The-Algorithm-Illustrated"
+    remote_url: "https://github.com/manato1201/The-Algorithm-Illustrated.git"
+    branch: main
+
+  - repo_id: color_encyclopedia
+    display_name: "ColorEncyclopedia"
+    local_path: "../ColorEncyclopedia"
+    remote_url: "https://github.com/manato1201/ColorEncyclopedia.git"
+    branch: main
+
+  - repo_id: rag_reel
+    display_name: "RAGReel"
+    local_path: "../RAGReel"
+    remote_url: "https://github.com/manato1201/RAGReel.git"
+    branch: main
+
+  - repo_id: visual_regression_qa_tool
+    display_name: "VisualRegressionQATool"
+    local_path: "../VisualRegressionQATool"
+    remote_url: "https://github.com/manato1201/VisualRegressionQATool.git"
+    branch: main
+
+  - repo_id: magic_circle_generator
+    display_name: "MagicCircleGenerator"
+    local_path: "../MagicCircleGenerator"
+    remote_url: "https://github.com/manato1201/MagicCircleGenerator.git"
+    branch: main
+
+  - repo_id: flowchart_visualizer_extension
+    display_name: "FlowchartVisualizerExtension"
+    local_path: "../FlowchartVisualizerExtension"
+    remote_url: "https://github.com/manato1201/FlowchartVisualizerExtension.git"
+    branch: main
+
+  - repo_id: lore_desktop_and_web_system
+    display_name: "LoreDesktopAndWebSystem"
+    local_path: "../LoreDesktopAndWebSystem"
+    remote_url: "https://github.com/manato1201/LoreDesktopAndWebSystem.git"
+    branch: main
+
+  - repo_id: learning_quick_draw
+    display_name: "LearningQuickDraw"
+    local_path: "../LearningQuickDraw"
+    remote_url: "https://github.com/manato1201/LearningQuickDraw.git"
+    branch: main
+
+  - repo_id: learning_fluid_engine
+    display_name: "LearningFluidEngine"
+    local_path: "../LearningFluidEngine"
+    remote_url: "https://github.com/manato1201/LearningFluidEngine.git"
+    branch: main
+
+  - repo_id: cad_gpu_inference_modeling
+    display_name: "CADGPUInferenceModeling"
+    local_path: "../CADGPUInferenceModeling"
+    remote_url: "https://github.com/manato1201/CADGPUInferenceModeling.git"
+    branch: main

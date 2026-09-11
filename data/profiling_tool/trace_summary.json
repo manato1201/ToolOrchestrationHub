@@ -1,0 +1,7 @@
+{
+  "generated_at": "2026-09-03T21:40:00Z",
+  "traces": [
+    { "trace_id": "frame_capture_0421", "duration_ms": 18.7, "gpu_ms": 12.1 },
+    { "trace_id": "frame_capture_0422", "duration_ms": 33.2, "gpu_ms": 27.9 }
+  ]
+}

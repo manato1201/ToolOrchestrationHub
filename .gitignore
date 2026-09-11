@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+
+# Hubの実行時状態(アラート永続化DB等)。サンプルアーティファクト(data/*/report_manifest.json等)は
+# 追跡対象のまま、ランタイム生成物はこちらに分離して除外する。
+.hub_state/
+
+# ProfilingTool(サブ機能)の実行時状態(トレース・差分チェックポイント・アラートログ)。
+.profiling_state/
+
+# 13リポジトリの差分同期先ローカルクローン(サブモジュール的に扱うため追跡しない)
+.repo_sync/

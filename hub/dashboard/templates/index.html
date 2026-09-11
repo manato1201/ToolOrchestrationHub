@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  {% if refresh_interval_s and refresh_interval_s > 0 %}
+  <meta http-equiv="refresh" content="{{ refresh_interval_s }}">
+  {% endif %}
+  <title>ToolOrchestrationHub Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+</head>
+<body>
+  <div class="hero-band-dark">
+    <p class="eyebrow">Monitoring · Read-only</p>
+    <h1>ToolOrchestrationHub</h1>
+    <p class="hero-subtitle">全ツールを繋ぐ中継基盤+異常検知アラート(監視のみ、各ツールの権限は奪わない)</p>
+    <div class="badge-live">● LIVE — {{ generated_at }}</div>
+    <p class="refresh-note">
+      {% if refresh_interval_s and refresh_interval_s > 0 %}
+        {{ refresh_interval_s }}秒毎に自動更新しています(<a href="/?refresh=0">停止</a>)
+      {% else %}
+        自動更新は停止中です(<a href="/?refresh=20">再開</a>)
+      {% endif %}
+    </p>
+  </div>
+  <div class="mirror-note">
+    このダッシュボードは各ツールが自律的に生成したアーティファクトの読み取り専用ミラーです。最新の正は各パネルに記載の取得元(source)側にあります。
+  </div>
+
+  <main>
+    <section>
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">Phase 1 · Registry — Phase 2 · Liveness</p>
+          <h2>Tool Registry &amp; Liveness</h2>
+        </div>
+        <button id="reload-registry-btn" class="btn-reload" type="button">Reload registry.yaml</button>
+      </div>
+      <div class="source-meta" style="margin-bottom: var(--space-16);">source: {{ registry_source_path }}(5秒毎に自動監視、変更検知時は自動リロードもされます)</div>
+      <div class="card-base">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Transport</th>
+              <th>Category</th>
+              <th>Health Check</th>
+              <th>Status</th>
+              <th>Latency</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in registry_rows %}
+            <tr>
+              <td><strong>{{ row.display_name }}</strong><br><span class="source-meta">{{ row.tool_id }}{% if row.endpoint %} · {{ row.endpoint }}{% endif %}</span></td>
+              <td>{{ row.transport }}</td>
+              <td><span class="pill pill-category-{{ row.category }}">{{ row.category }}</span></td>
+              <td>{{ row.health_check or "—" }}</td>
+              <td>
+                {% if row.is_up is none %}
+                  <span class="pill pill-unknown">unknown</span>
+                {% elif row.is_up %}
+                  <span class="pill pill-up">up</span>
+                {% else %}
+                  <span class="pill pill-down">down</span>
+                {% endif %}
+              </td>
+              <td>{% if row.latency_ms is not none %}{{ "%.1f"|format(row.latency_ms) }} ms{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <p class="eyebrow">Phase 3 · Alert Aggregator</p>
+      <h2>Open &amp; Resolved Alerts</h2>
+      <div class="card-base">
+        {% if alert_rows|length == 0 %}
+          <p class="empty">現在アラートはありません。</p>
+        {% else %}
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Severity</th>
+              <th>Source</th>
+              <th>Message</th>
+              <th>First Seen</th>
+              <th>Resolved</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in alert_rows %}
+            <tr>
+              <td><span class="pill pill-status-{{ a.status }}">{{ a.status }}</span></td>
+              <td><span class="pill pill-severity-{{ a.severity }}">{{ a.severity }}</span></td>
+              <td>{{ a.source_tool_id }}</td>
+              <td>{{ a.message }}</td>
+              <td class="source-meta">{{ a.first_seen_at }}</td>
+              <td class="source-meta">{{ a.resolved_at or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </section>
+
+    <section>
+      <p class="eyebrow">Read-only mirror</p>
+      <h2>Artifacts</h2>
+      <div class="artifact-grid">
+        <div class="card-base">
+          <h3>Asset Data Insight Suite — report_manifest.json</h3>
+          <div class="source-meta">source: {{ manifest.source }} {% if manifest.available %}· loaded {{ manifest.loaded_at }}{% endif %}</div>
+          {% if manifest.available %}
+            <div class="code-block">{{ manifest.data | tojson(indent=2) }}</div>
+          {% else %}
+            <p class="empty">未取得(ファイルが見つかりません)</p>
+          {% endif %}
+        </div>
+
+        <div class="card-base">
+          <h3>Visual Regression QA Tool — EvaluationResult</h3>
+          <div class="source-meta">source: {{ vrqa.source }} {% if vrqa.available %}· loaded {{ vrqa.loaded_at }}{% endif %}</div>
+          {% if vrqa.available %}
+            <div class="code-block">{{ vrqa.data | tojson(indent=2) }}</div>
+          {% else %}
+            <p class="empty">未取得(ファイルが見つかりません)</p>
+          {% endif %}
+        </div>
+
+        <div class="card-base">
+          <h3>Profiling Tool — Perfetto trace summary</h3>
+          <div class="source-meta">source: {{ trace.source }} {% if trace.available %}· loaded {{ trace.loaded_at }}{% endif %}</div>
+          {% if trace.available %}
+            <div class="code-block">{{ trace.data | tojson(indent=2) }}</div>
+          {% else %}
+            <p class="empty">未取得(ファイルが見つかりません)</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <p class="eyebrow">サブ機能 · profiling_tool</p>
+      <h2>Profiling</h2>
+      <div class="card-base">
+        {% if profiling_runs|length == 0 %}
+          <p class="empty">まだトレースがありません。profiling_tool/scripts/generate_demo_traces.py 等でトレースを生成すると表示されます。</p>
+        {% else %}
+        <table>
+          <thead><tr><th>Target</th><th>Run ID</th><th>Modified</th></tr></thead>
+          <tbody>
+            {% for r in profiling_runs %}
+            <tr>
+              <td><strong>{{ r.target }}</strong>{% if profiling_selected and profiling_selected.target == r.target and profiling_selected.run_id == r.run_id %} <span class="pill pill-status-resolved">latest</span>{% endif %}</td>
+              <td>{{ r.run_id }}</td>
+              <td class="source-meta">{{ r.modified_at }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if profiling_selected %}
+        <h3 style="margin-top: var(--space-24); font-family: var(--font-display); font-weight: 380; font-size: 18px; color: var(--text-parchment);">Latest run — {{ profiling_selected.target }} / {{ profiling_selected.run_id }}</h3>
+        <div class="two-col" style="margin-top: var(--space-16);">
+          <div>
+            {% if profiling_latency|length == 0 %}
+              <p class="empty">spanイベントがありません。</p>
+            {% else %}
+            <table>
+              <thead><tr><th>Span</th><th>p50</th><th>p95</th></tr></thead>
+              <tbody>
+                {% for name, s in profiling_latency.items() %}
+                <tr><td>{{ name }}</td><td>{{ (s.p50 / 1000) | round(2) }} ms</td><td>{{ (s.p95 / 1000) | round(2) }} ms</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+          </div>
+          <div>
+            {% if profiling_usage|length == 0 %}
+              <p class="empty">counterイベントがありません。</p>
+            {% else %}
+            <table>
+              <thead><tr><th>Counter</th><th>Latest</th><th>Avg</th></tr></thead>
+              <tbody>
+                {% for name, u in profiling_usage.items() %}
+                <tr><td>{{ name }}</td><td>{{ u.latest }}</td><td>{{ u.avg | round(2) if u.avg is not none else "—" }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% endif %}
+        <p class="source-meta" style="margin-top: var(--space-16);">詳細(バックエンド表示・サービス連携状況等)は <code>uv run profiling-dashboard</code> のスタンドアロン画面でも確認できます。</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">gitの最新状態を反映 · 差分ダウンロード</p>
+          <h2>Repositories</h2>
+        </div>
+        <button id="repos-check-btn" class="btn-reload" type="button">Check all</button>
+      </div>
+      <div class="source-meta" style="margin-bottom: var(--space-16);">source: hub/repos.yaml(git fetchのみ自動実行、ワーキングツリーへの取り込みはSyncボタンでのみ行う)</div>
+      <div class="card-base">
+        {% if repo_rows|length == 0 %}
+          <p class="empty">登録リポジトリがありません。</p>
+        {% else %}
+        <table>
+          <thead>
+            <tr><th>Repository</th><th>Branch</th><th>Status</th><th>Checked</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for r in repo_rows %}
+            <tr>
+              <td><strong>{{ r.display_name }}</strong><br><span class="source-meta">{{ r.remote_url }}</span></td>
+              <td>{{ r.branch }}</td>
+              <td>
+                {% if r.error %}
+                  <span class="pill pill-down">error</span>
+                {% elif r.is_up_to_date is none %}
+                  <span class="pill pill-unknown">unchecked</span>
+                {% elif r.is_up_to_date %}
+                  <span class="pill pill-up">up to date</span>
+                {% else %}
+                  <span class="pill pill-down">{{ r.commits_behind }} behind</span>
+                {% endif %}
+                {% if r.has_local_changes %}
+                  <span class="pill pill-category-observed_only">dirty</span>
+                {% endif %}
+              </td>
+              <td class="source-meta">{{ r.checked_at or "—" }}</td>
+              <td>
+                {% if r.can_sync %}
+                  <button class="btn-reload repo-sync-btn" data-repo-id="{{ r.repo_id }}" type="button">Sync</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    ToolOrchestrationHub v0.1 — Registry / Relay / AlertAggregator の3層構成。Hub停止時も各ツールのコア機能は単独で継続動作します。
+  </footer>
+
+  <script>
+    document.getElementById("reload-registry-btn").addEventListener("click", async (event) => {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      btn.textContent = "Reloading...";
+      try {
+        const res = await fetch("/api/registry/reload", { method: "POST" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        window.location.reload();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Reload registry.yaml";
+        alert(`registry.yamlの再読込に失敗しました: ${err}`);
+      }
+    });
+
+    const reposCheckBtn = document.getElementById("repos-check-btn");
+    if (reposCheckBtn) {
+      reposCheckBtn.addEventListener("click", async (event) => {
+        const btn = event.currentTarget;
+        btn.disabled = true;
+        btn.textContent = "Checking...";
+        try {
+          const res = await fetch("/api/repos/check", { method: "POST" });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          window.location.reload();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = "Check all";
+          alert(`リポジトリのチェックに失敗しました: ${err}`);
+        }
+      });
+    }
+
+    document.querySelectorAll(".repo-sync-btn").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        const target = event.currentTarget;
+        const repoId = target.dataset.repoId;
+        target.disabled = true;
+        target.textContent = "Syncing...";
+        try {
+          const res = await fetch(`/api/repos/${repoId}/sync`, { method: "POST" });
+          const body = await res.json();
+          if (!res.ok) {
+            throw new Error(body.detail || `HTTP ${res.status}`);
+          }
+          window.location.reload();
+        } catch (err) {
+          target.disabled = false;
+          target.textContent = "Sync";
+          alert(`同期に失敗しました: ${err}`);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

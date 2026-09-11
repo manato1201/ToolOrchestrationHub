@@ -1,0 +1,7 @@
+{
+  "generated_at": "2026-09-02T09:15:00Z",
+  "results": [
+    { "case_id": "title_screen", "passed": true },
+    { "case_id": "battle_hud_overlay", "passed": false, "message": "pixel diff 3.4% exceeds threshold" }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-09-01T03:00:00Z",
+  "entries": [
+    {
+      "asset_id": "characters/hero_base_mesh",
+      "severity": "warn",
+      "message": "polycount budget exceeded by 12%"
+    },
+    {
+      "asset_id": "textures/env_forest_atlas",
+      "severity": "info",
+      "message": "within budget"
+    }
+  ]
+}
