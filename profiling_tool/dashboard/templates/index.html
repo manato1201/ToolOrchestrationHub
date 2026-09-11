@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>ProfilingTool Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+</head>
+<body>
+  <div class="hero-band-dark">
+    <p class="eyebrow">Monitoring · Read-only</p>
+    <h1>ProfilingTool</h1>
+    <p class="hero-subtitle">VLM Auto-Replay / Sound Middleware / Dynamic GI Middleware / LearningQt(VideoFactory)を横断する計測基盤。タイムライン本体はPerfetto UI(ui.perfetto.dev)に委譲し、ここでは使用率・バックエンド・連携状況を表示する。</p>
+    <div class="badge-live">● LIVE</div>
+  </div>
+  <div class="mirror-note">
+    このダッシュボードは traces/ 以下のトレースファイルをそのまま読み取り専用で表示するミラーです。集計・再計算はaggregate.py側の純関数で行い、ここでは行いません。
+  </div>
+
+  <main>
+    <section>
+      <h2>Runs</h2>
+      <div class="card-base">
+        {% if runs|length == 0 %}
+          <p class="empty">まだトレースがありません。アダプタでto_trace()した結果をTraceWriterで書き出すとここに表示されます。</p>
+        {% else %}
+        <table>
+          <thead>
+            <tr><th>Target</th><th>Run ID</th><th>Size</th><th>Modified</th></tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+            <tr>
+              <td>
+                <a href="/?target={{ r.target }}&run_id={{ r.run_id }}">
+                  <strong>{{ r.target }}</strong>
+                </a>
+                {% if selected and selected.target == r.target and selected.run_id == r.run_id %}
+                  <span class="pill pill-ok">selected</span>
+                {% endif %}
+              </td>
+              <td>{{ r.run_id }}</td>
+              <td class="source-meta">{{ r.size_bytes }} bytes</td>
+              <td class="source-meta">{{ r.modified_at }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </section>
+
+    {% if selected %}
+    <section>
+      <p class="eyebrow">Phase3 · Latency</p>
+      <h2>Span latency — {{ selected.target }} / {{ selected.run_id }}</h2>
+      <div class="card-base">
+        {% if latency|length == 0 %}
+          <p class="empty">spanイベントがありません。</p>
+        {% else %}
+        <table>
+          <thead>
+            <tr><th>Span</th><th>Count</th><th>p50</th><th>p95</th><th>p99</th></tr>
+          </thead>
+          <tbody>
+            {% for name, s in latency.items() %}
+            <tr>
+              <td><strong>{{ name }}</strong></td>
+              <td>{{ s.count }}</td>
+              <td>{{ (s.p50 / 1000) | round(2) }} ms</td>
+              <td>{{ (s.p95 / 1000) | round(2) }} ms</td>
+              <td>{{ (s.p99 / 1000) | round(2) }} ms</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </section>
+
+    <section>
+      <p class="eyebrow">使用率・使用量の可視化</p>
+      <h2>Usage — {{ selected.target }} / {{ selected.run_id }}</h2>
+      <div class="card-base">
+        {% if usage|length == 0 %}
+          <p class="empty">counterイベントがありません。</p>
+        {% else %}
+        <table>
+          <thead>
+            <tr><th>Counter</th><th>Latest</th><th>Avg</th><th>Min / Max</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for name, u in usage.items() %}
+            <tr>
+              <td><strong>{{ name }}</strong><br><span class="source-meta">{{ u.count }} samples</span></td>
+              <td>{{ u.latest }}</td>
+              <td>{{ u.avg | round(2) if u.avg is not none else "—" }}</td>
+              <td class="source-meta">{{ u.min }} / {{ u.max }}</td>
+              <td style="min-width:120px;">
+                {% if u.max and u.max > 0 %}
+                <div class="usage-bar-track">
+                  <div class="usage-bar-fill" style="width: {{ ((u.latest / u.max) * 100) | round(0) }}%;"></div>
+                </div>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section>
+      <p class="eyebrow">バックエンド・データの簡易表示</p>
+      <h2>Backend &amp; Data</h2>
+      <div class="two-col">
+        <div class="card-base">
+          <table>
+            <tbody>
+              <tr><td><strong>Trace store</strong><br><span class="source-meta">{{ backend.trace_store.kind }}</span></td><td class="source-meta">{{ backend.trace_store.path }}</td></tr>
+              <tr><td><strong>Checkpoint store</strong><br><span class="source-meta">{{ backend.checkpoint_store.kind }}</span></td><td class="source-meta">{{ backend.checkpoint_store.path }}</td></tr>
+              <tr><td><strong>Alert log</strong><br><span class="source-meta">{{ backend.alert_log.kind }}</span></td><td class="source-meta">{{ backend.alert_log.path }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-base">
+          <div class="data-warning">この下は実際に取り込んだ生データ(reasoning等)をそのまま表示しています。VLMの推論内容などが含まれる場合があります。</div>
+          {% if sample|length == 0 %}
+            <p class="empty">structured eventがありません。</p>
+          {% else %}
+            {% for s in sample %}
+              <div class="source-meta" style="margin-bottom:4px;">{{ s.name }} · ts={{ s.ts }}</div>
+              <div class="code-block" style="margin-bottom:12px;">{{ s.payload | tojson(indent=2) }}</div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <p class="eyebrow">Phase4 · サービス連携</p>
+      <h2>Service integrations</h2>
+      <div class="card-base">
+        <table>
+          <tbody>
+            <tr>
+              <td><strong>ToolOrchestrationHub</strong><br><span class="source-meta">{{ hub_url }}/api/alerts/profiling-tool へアラート送信(ToolOrchestrationHubSink)</span></td>
+              <td>
+                {% if hub_reachable %}
+                  <span class="pill pill-ok">reachable</span>
+                {% else %}
+                  <span class="pill pill-neutral">unreachable</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Webhook</strong><br><span class="source-meta">{{ webhook_url if webhook_configured else "PROFILING_WEBHOOK_URL 未設定" }}</span></td>
+              <td>
+                {% if webhook_configured %}
+                  <span class="pill pill-ok">configured</span>
+                {% else %}
+                  <span class="pill pill-neutral">not configured</span>
+                {% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recent alerts</h2>
+      <div class="card-base">
+        {% if alerts|length == 0 %}
+          <p class="empty">アラートはまだありません。</p>
+        {% else %}
+        <table>
+          <thead><tr><th>Target</th><th>Metric</th><th>Value</th><th>Threshold</th><th>Severity</th></tr></thead>
+          <tbody>
+            {% for a in alerts %}
+            <tr>
+              <td>{{ a.target }}</td>
+              <td>{{ a.metric }}</td>
+              <td>{{ a.value }}</td>
+              <td>{{ a.threshold }}</td>
+              <td>
+                {% if a.severity == "critical" %}
+                  <span class="pill pill-danger">{{ a.severity }}</span>
+                {% else %}
+                  <span class="pill pill-warn">{{ a.severity }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    ProfilingTool v0.1 — span / counter / event / GpuTimestampQuery のコアSDK + 4アダプタ。タイムライン本体はPerfetto UI(ui.perfetto.dev)へ。
+  </footer>
+</body>
+</html>

@@ -1,0 +1,143 @@
+# hub/registry.yaml
+#
+# v1・静的台帳。ToolOrchestrationHub_DESIGN.md Phase0の統合対象棚卸し表(12件)と1:1対応する。
+#
+# NOTE: transport / category / health_check は各文書(参照元12文書)の実装が固まるまで
+# すべて「暫定」として扱う(DESIGN.md 前提・制約 参照)。poll_interval_s / check_params の
+# 具体値も同様に暫定であり、対象ツール側の実際の間隔が判明次第ここだけを更新すればよい。
+# Hub自身の内部アーキテクチャ(Registry/Relay/AlertAggregatorの3層構成)はここでは変更しない。
+
+tools:
+  # 1. LoreDesktopAndWebSystem — RPC(QLocalSocket)+:8766ブリッジ(RAGアシスタント)
+  #    Registryのtransport2種(rpc/http_bridge)のプロトタイプ。Hub自体はRPCチャネルに介入しない。
+  - tool_id: lore_desktop_and_web_system
+    display_name: "LoreDesktopAndWebSystem"
+    transport: rpc
+    endpoint: null
+    health_check: rpc_check   # 受動監視のみ。Hubから能動的にQLocalSocketへ接続しない
+    category: observed_only
+    check_params:
+      heartbeat_interval_s: 10  # 暫定。Phase4(プロセス分離)側の実測値で更新する
+
+  # 2. The-Algorithm-Illustrated — 静的サイト、CI/CDあり(ビルド成功/失敗のみ)
+  - tool_id: the_algorithm_illustrated
+    display_name: "The-Algorithm-Illustrated"
+    transport: static_site
+    endpoint: null
+    health_check: ci_pipeline_check   # CI最終成功runの経過時間のみ見る
+    category: monitored
+    poll_interval_s: 86400            # 暫定。対象CIの実際のcron/push頻度で更新する
+    check_params:
+      expected_interval_s: 86400
+      grace_multiplier: 1.5
+
+  # 3. Research-Collector — GitHub Actions cron、Issue自動作成/refresh_auth.ps1による自動クローズ
+  #    Hub新設のdedup/resolveアラートライフサイクルの直接の前例(AlertAggregator参照)
+  - tool_id: research_collector
+    display_name: "Research-Collector"
+    transport: cli_batch
+    endpoint: null
+    health_check: ci_pipeline_check
+    category: monitored
+    poll_interval_s: 21600            # cronの実際の間隔(6時間おき)以下に留める
+    check_params:
+      expected_interval_s: 21600      # Research-Collectorの実cron間隔(6時間おき)
+      grace_multiplier: 1.5
+
+  # 4. DevelopmentRAGEnvironment — rag_local_bridge.pyの:8766ブリッジ、未認証/health
+  - tool_id: dev_rag_environment
+    display_name: "DevelopmentRAGEnvironment"
+    transport: http_bridge
+    endpoint: "http://127.0.0.1:8766/health"
+    health_check: http_bridge_check
+    category: monitored
+    poll_interval_s: 60               # 暫定。相手側の負荷を増やさない範囲で調整する
+    check_params:
+      timeout_s: 3.0
+
+  # 5. LearningQt(VideoFactory) — Orchestrator/JobPipeline/ResourceBudgetManager(GPU厳密直列)
+  #    Hubは観察のみ。GPU排他のクリティカルパスに監視トラフィックを一切入れない
+  - tool_id: learning_qt
+    display_name: "LearningQt(VideoFactory)"
+    transport: rpc
+    endpoint: null
+    health_check: rpc_check
+    category: observed_only
+    check_params:
+      heartbeat_interval_s: 30        # 暫定
+
+  # 6. AssetDataInsightSuite — CI定期実行、report_manifest.json、Issue通知
+  - tool_id: asset_data_insight_suite
+    display_name: "AssetDataInsightSuite"
+    transport: cli_batch
+    endpoint: null
+    health_check: ci_pipeline_check
+    category: monitored
+    poll_interval_s: 86400            # 暫定。対象CIの実際の定期実行間隔で更新する
+    check_params:
+      expected_interval_s: 86400
+      grace_multiplier: 1.5
+      report_manifest_path: "data/asset_data_insight/report_manifest.json"
+
+  # 7. SoundMiddleware — 独自RPC(realtime)、ハートビート/再接続契約(Phase3)
+  #    監視/管理チャネルのみHubに相乗りさせる。realtimeのhot pathには絶対に入れない
+  - tool_id: sound_middleware
+    display_name: "SoundMiddleware"
+    transport: rpc
+    endpoint: null
+    health_check: rpc_check
+    category: observed_only
+    check_params:
+      heartbeat_interval_s: 10        # 暫定。Phase3確定値で更新する
+
+  # 8. VisualRegressionQATool — 差し替え可能アラートsink(Phase5)
+  - tool_id: visual_regression_qa_tool
+    display_name: "VisualRegressionQATool"
+    transport: cli_batch
+    endpoint: null
+    health_check: ci_pipeline_check
+    category: monitored
+    poll_interval_s: 86400            # 暫定
+    check_params:
+      expected_interval_s: 86400
+      grace_multiplier: 1.5
+      evaluation_result_path: "data/visual_regression_qa/evaluation_result.json"
+
+  # 9. ColorEncyclopedia — 静的サイト、実行時連携なし。対象外
+  - tool_id: color_encyclopedia
+    display_name: "ColorEncyclopedia"
+    transport: static_site
+    endpoint: null
+    health_check: null
+    category: excluded
+
+  # 10. VLMAutoReplayTool — StepLog、:8766ブリッジ利用(DevelopmentRAGEnvironment経由)
+  #     Profiling Tool経由で間接的にメトリクス取得する。Hubから直接フックしない
+  - tool_id: vlm_auto_replay_tool
+    display_name: "VLMAutoReplayTool"
+    transport: http_bridge
+    endpoint: null
+    health_check: null
+    category: observed_only
+
+  # 11. DynamicGIMiddleware — フレーム毎GPUコスト計測対象
+  #     Profiling Tool経由で間接的にメトリクス取得する。フレームクリティカルパスには入らない
+  - tool_id: dynamic_gi_middleware
+    display_name: "DynamicGIMiddleware"
+    transport: rpc
+    endpoint: null
+    health_check: null
+    category: observed_only
+
+  # 12. ProfilingTool — メトリクス/アラート発行契約(Phase4確定済み)
+  #     AlertAggregatorの主経路
+  - tool_id: profiling_tool
+    display_name: "ProfilingTool"
+    transport: http_bridge
+    endpoint: "http://127.0.0.1:8767/health"
+    health_check: http_bridge_check
+    category: monitored
+    poll_interval_s: 30               # 暫定。対象の実際の発行契約間隔で更新する
+    check_params:
+      timeout_s: 3.0
+      trace_summary_path: "data/profiling_tool/trace_summary.json"

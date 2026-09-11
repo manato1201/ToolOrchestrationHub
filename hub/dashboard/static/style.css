@@ -1,0 +1,376 @@
+/* hub/dashboard/static/style.css
+ *
+ * "Retool — Style Reference" (HUBTOOLDESIGN.md, warm obsidian workshop) のデザイントークンを
+ * ダッシュボードのビジュアルスタイルとして反映したもの。カスタムフォント(saansFont/
+ * pxGroteskFont)は入手不可のため、参照ドキュメント自身が挙げるSubstitute
+ * (Inter/DM Sans, Space Grotesk/Geist)を使う。
+ *
+ * 元ドキュメントはマーケティングサイト向けのトークン集であり、この監視ダッシュボードに
+ * 必須の状態色(ok/warn/danger)は定義されていない。"chromatic色はshimmerテキストのみ"
+ * という原則は尊重しつつ、警告色の代わりに元のヒーローグラデーション自体が持つ
+ * amber/rust(琥珀・錆色)を状態色として流用し、新規に彩度の高い色を持ち込まない。
+ */
+
+:root {
+  /* Surfaces — 3段階のフラットマテリアル(shadowは使わない) */
+  --surface-void: #0e0e0e;
+  --surface-canvas: #151515;
+  --surface-raised: #242424;
+  --border-rim: #3f403d;
+  --border-rim-subtle: rgba(233, 235, 223, 0.12);
+
+  /* Text */
+  --text-parchment: #e9ebdf;
+  --text-fog: #cbccc4;
+  --text-ash: #94958e;
+  --text-limestone: #b6b8af;
+
+  /* 装飾ウォッシュ(大面積の背景トーンのみに使う。テキスト・リンクには使わない) */
+  --wash-forest-deep: #185849;
+  --wash-midnight-moss: #0e352c;
+
+  /* 状態色(監視ダッシュボード固有の拡張)。ヒーローグラデーションのamber/rust系統から
+     採り、新規の彩度の高い色を持ち込まない。teal washはpositive(up/resolved)に転用する */
+  --state-ok-bg: #123a2f;
+  --state-ok-text: #8fd6bb;
+  --state-warn-bg: #4a3016;
+  --state-warn-text: #e3b183;
+  --state-danger-bg: #46231a;
+  --state-danger-text: #e8a58d;
+
+  /* Typography */
+  --font-display: "Inter", "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-label: "Space Grotesk", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", Menlo, Consolas, monospace;
+
+  /* Spacing — 4px基準 */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-56: 56px;
+  --space-64: 64px;
+
+  /* Radius — buttonsは0pxかpillの二値、cards/badgesはその中間 */
+  --radius-badge: 4px;
+  --radius-card: 8px;
+  --radius-square: 0px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-canvas);
+  color: var(--text-fog);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--text-parchment);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Hero: Retoolの"Hero Atmosphere Gradient"(左下からのamber-rustグラデーション)をそのまま流用 */
+.hero-band-dark {
+  background:
+    radial-gradient(
+      at -5% 105%,
+      rgba(27, 46, 68, 0.5) 26%,
+      rgba(51, 45, 43, 0.5) 44%,
+      rgba(74, 43, 17, 0.5) 62%,
+      rgba(73, 31, 22, 0.5) 66%,
+      rgba(21, 21, 21, 0) 85%,
+      rgba(21, 21, 21, 0.03) 100%
+    ),
+    var(--surface-canvas);
+  color: var(--text-parchment);
+  padding: var(--space-56) var(--space-40) var(--space-40);
+  border-bottom: 1px solid var(--border-rim);
+}
+
+.eyebrow {
+  font-family: var(--font-label);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.013em;
+  text-transform: uppercase;
+  color: var(--text-limestone);
+  margin: 0 0 var(--space-8);
+}
+
+.hero-band-dark h1 {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 48px;
+  line-height: 1.05;
+  letter-spacing: -0.48px;
+  margin: 0 0 var(--space-8);
+}
+
+.hero-band-dark .hero-subtitle {
+  font-weight: 380;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-fog);
+  margin: 0;
+  max-width: 640px;
+}
+
+.badge-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--wash-midnight-moss);
+  color: var(--text-parchment);
+  font-family: var(--font-label);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.013em;
+  text-transform: uppercase;
+  border-radius: var(--radius-badge);
+  padding: 3px 8px;
+  margin-top: var(--space-16);
+}
+
+.refresh-note {
+  display: block;
+  margin: var(--space-8) 0 0;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+.refresh-note a {
+  color: var(--text-parchment);
+}
+
+.mirror-note {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-16) var(--space-40) 0;
+  color: var(--text-ash);
+  font-size: 13px;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-40);
+  display: grid;
+  gap: var(--space-64);
+}
+
+section h2 {
+  font-family: var(--font-display);
+  font-weight: 380;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.24px;
+  color: var(--text-parchment);
+  margin: 0;
+}
+
+section > .eyebrow {
+  margin-bottom: var(--space-4);
+}
+
+section > h2 {
+  margin-bottom: var(--space-16);
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-16);
+  margin-bottom: var(--space-16);
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.card-base {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+  padding: var(--space-24);
+  /* auto-fit/1frのグリッド子要素はデフォルトmin-width:autoのため、改行しない
+     長いパス文字列(source-meta)があるとカードの列自体が押し広げられて
+     はみ出す("grid blowout")。0にしてグリッド側の1frを優先させる。 */
+  min-width: 0;
+}
+
+.source-meta {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+  /* Windowsパス等、区切り文字の無い長い1トークンでも折り返す */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  text-align: left;
+  font-family: var(--font-label);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.013em;
+  text-transform: uppercase;
+  color: var(--text-limestone);
+  padding: var(--space-8) var(--space-12);
+  border-bottom: 1px solid var(--border-rim);
+}
+
+td {
+  padding: var(--space-12);
+  border-bottom: 1px solid var(--border-rim-subtle);
+  color: var(--text-fog);
+  vertical-align: top;
+}
+
+td strong {
+  color: var(--text-parchment);
+  font-weight: 570;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+.pill {
+  display: inline-block;
+  border-radius: var(--radius-badge);
+  padding: 2px 8px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.013em;
+  text-transform: uppercase;
+}
+
+.pill-up,
+.pill-status-resolved {
+  background: var(--state-ok-bg);
+  color: var(--state-ok-text);
+}
+
+.pill-down,
+.pill-status-open,
+.pill-severity-critical {
+  background: var(--state-danger-bg);
+  color: var(--state-danger-text);
+}
+
+.pill-severity-warn {
+  background: var(--state-warn-bg);
+  color: var(--state-warn-text);
+}
+
+.pill-unknown,
+.pill-severity-info,
+.pill-category-excluded {
+  background: transparent;
+  color: var(--text-ash);
+  border: 1px solid var(--border-rim);
+}
+
+.pill-category-monitored {
+  background: var(--wash-midnight-moss);
+  color: var(--text-parchment);
+}
+
+.pill-category-observed_only {
+  background: transparent;
+  color: var(--text-limestone);
+  border: 1px solid var(--border-rim);
+}
+
+.empty {
+  color: var(--text-ash);
+  font-style: italic;
+  font-size: 14px;
+}
+
+.artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-24);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-24);
+}
+
+.artifact-grid h3 {
+  font-family: var(--font-display);
+  font-weight: 380;
+  font-size: 18px;
+  letter-spacing: -0.18px;
+  color: var(--text-parchment);
+  margin: 0 0 var(--space-8);
+}
+
+.code-block {
+  background: var(--surface-void);
+  color: var(--text-fog);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.btn-reload {
+  background: transparent;
+  color: var(--text-parchment);
+  border: 1px solid var(--text-parchment);
+  border-radius: var(--radius-square);
+  padding: 8px 20px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.013em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-reload:disabled {
+  color: var(--text-ash);
+  border-color: var(--border-rim);
+  cursor: default;
+}
+
+footer {
+  background: var(--surface-void);
+  color: var(--text-ash);
+  padding: var(--space-40);
+  text-align: center;
+  font-size: 12px;
+  border-top: 1px solid var(--border-rim);
+}
