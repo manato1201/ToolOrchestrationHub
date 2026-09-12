@@ -43,6 +43,7 @@ def load_alert_summary(aggregator: AlertAggregator) -> list[dict]:
     """Phase3のAlertRecord一覧をopen/resolved別に整形するのみ。新規判定はしない。"""
     rows = []
     for alert in aggregator.all():
+        snoozed_until = aggregator.snoozed_until(alert.alert_id)
         rows.append(
             {
                 "alert_id": alert.alert_id,
@@ -52,6 +53,7 @@ def load_alert_summary(aggregator: AlertAggregator) -> list[dict]:
                 "first_seen_at": alert.first_seen_at.isoformat(),
                 "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
                 "status": "resolved" if alert.resolved_at else "open",
+                "snoozed_until": snoozed_until.isoformat() if snoozed_until else None,
             }
         )
     return rows

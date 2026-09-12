@@ -48,18 +48,32 @@ v2.2: ユーザー追加要件「個別に起動できるようにしたい」�
 Hubは起動を代行するだけで、起動後のプロセス管理(停止・ログ監視等)は行わない
 (監視のみ、各ツールの権限は奪わないという設計原則の延長)。起動コマンドを持たない
 対象(ビルド必須/IDE拡張等)には代わりに「Open folder」のみを提示する。
+
+v2.3: リファクタリング・再監査で見つけた不整合の修正 + 使いやすさ改善5点。
+- launch.urlの疎通確認とrepo git fetchの並行実行化(非hot-path原則への準拠。詳細はREADME参照)
+- アラートのフィルタ/検索、JSON/CSVエクスポート(いずれもクライアント側のみ、Hubは再計算しない)
+- Slack Webhook通知(hub/notify.pyのSlackWebhookSink/CompositeSink)
+- 起動操作の「時刻・OSユーザー名・成否」の軽量記録(メモリのみ、プロセス管理はしない)
+- 起動コマンドの実行ファイルがPATH上にあるかの事前健全性チェック(process_launcher.py)
+
+v2.4: 再監査で見つけた不備の修正(check_target_reachableの例外捕捉漏れ) + 使いやすさ改善4点。
+- 複数プロセス構成リポジトリの一括起動ボタン(Start all)
+- アラートのスヌーズ/ミュート(AlertAggregator.snooze/unsnooze。通知のみ抑制、状態は不変)
+- Registry & Liveness / Repositoriesテーブルの横断検索(クライアント側のみ)
+- プロファイリングのrun間比較(profiling_tool.aggregate.diff_span_summary/diff_counter_summary)
 """
 
 from __future__ import annotations
 
 import asyncio
+import getpass
 import time
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -77,7 +91,7 @@ from ..alert_aggregator import (
 from ..alert_store import DEFAULT_DB_PATH, SqliteAlertStore
 from ..health.runner import LivenessMonitor
 from ..notify import default_sink
-from ..process_launcher import check_target_reachable, launch, open_folder
+from ..process_launcher import check_command_available, check_target_reachable, launch, open_folder
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
 
@@ -85,6 +99,7 @@ from ..repo_sync import RepoRegistry, RepoSyncManager
 # 絶対importで参照する。Hub自身のRegistry/AlertAggregator等とは独立した1機能として扱い、
 # ここではdata_sources経由の読み取りのみを行う(Hubの他コードからprofiling_toolの
 # 内部実装へ踏み込まない)。
+from profiling_tool.aggregate import diff_counter_summary, diff_span_summary
 from profiling_tool.dashboard import data_sources as profiling_data_sources
 
 # LivenessMonitor.check_all()を呼び出す頻度。実際のネットワーク呼び出しは各ToolEntryの
@@ -107,6 +122,13 @@ DEFAULT_REFRESH_INTERVAL_S = 20
 # アクセスするため、対象ツール自身の更新頻度より高頻度にしない「非hot-path原則」に
 # 倣い長めに取る(手動チェックは別途 POST /api/repos/check で即時トリガできる)。
 REPO_CHECK_INTERVAL_S = 1800
+
+# 起動済みlaunch_targetの疎通確認(check_target_reachable)を自動実行する間隔。
+# ローカルloopbackへの低コストな接続確認のみなので短めでよいが、ダッシュボードの
+# 描画リクエスト(既定20秒毎のmeta refresh)のたびに毎回実行するのは他機能で徹底している
+# 「バックグラウンドでキャッシュし、リクエスト自体はキャッシュを読むだけ」という
+# 非hot-path原則から外れるため、repo_check同様に独立したバックグラウンドループへ切り出す。
+LAUNCH_CHECK_INTERVAL_S = 10
 
 BASE_DIR = Path(__file__).parent
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -184,6 +206,15 @@ def create_app(
     aggregator = AlertAggregator(
         store=store, on_open=sink.notify_opened, on_resolve=sink.notify_resolved
     )
+    # repo_id -> (target_indexに対応する)reachable値のリスト。_launch_check_loopが
+    # 定期更新し、リクエストハンドラ側は読むだけにする(ネットワークI/Oをリクエスト経路から追い出す)。
+    launch_reachability: dict[str, list[Optional[bool]]] = {}
+    # repo_id -> {target_index: {"launched_at", "launched_by", "ok", "message"}}。
+    # 「いつ・誰が起動ボタンを押したか」の軽量な記録(v2.2の「起動後のプロセス管理はしない」
+    # という設計原則には踏み込まず、単に直近の起動操作を記録するだけ)。Hubプロセスの
+    # メモリ上にのみ持ち、再起動で失われる(アラート履歴のようなSQLite永続化はしない —
+    # 事故防止のための軽い手掛かりであり、監査ログとしての永続性までは要求されていない)。
+    launch_history: dict[str, dict[int, dict]] = {}
 
     async def _poll_loop() -> None:
         while True:
@@ -246,12 +277,42 @@ def create_app(
                 pass
             await asyncio.sleep(REPO_CHECK_INTERVAL_S)
 
+    async def _launch_check_loop() -> None:
+        """各repoのlaunch_targetの疎通確認をバックグラウンドでキャッシュ更新する。
+
+        以前はダッシュボード描画のたびに(既定20秒毎のmeta refresh含め)urlopenしていたが、
+        他の全チェック(repo git fetch, liveness poll)と同じくバックグラウンドでキャッシュし、
+        リクエスト経路からネットワークI/Oを追い出す。
+        """
+        async def _one(target) -> Optional[bool]:
+            if not target.url:
+                return None
+            return await asyncio.to_thread(check_target_reachable, target)
+
+        async def _one_repo(entry) -> None:
+            # 1リポジトリ分の疎通確認失敗(想定外の例外)が他リポジトリの更新を
+            # 巻き込んで止めないよう、repo_sync_manager.check_all()と同様にリポジトリ単位で
+            # 例外を隔離する(check_target_reachable自体はほぼ例外を出さないが、二重の安全網)。
+            try:
+                launch_reachability[entry.repo_id] = await asyncio.gather(
+                    *(_one(t) for t in entry.launch_targets)
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+
+        while True:
+            await asyncio.gather(*(_one_repo(entry) for entry in repo_registry.all()))
+            await asyncio.sleep(LAUNCH_CHECK_INTERVAL_S)
+
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
         poll_task = asyncio.create_task(_poll_loop())
         watch_task = asyncio.create_task(_registry_watch_loop())
         prune_task = asyncio.create_task(_prune_loop())
         repo_check_task = asyncio.create_task(_repo_check_loop())
+        launch_check_task = asyncio.create_task(_launch_check_loop())
         try:
             yield
         finally:
@@ -259,6 +320,7 @@ def create_app(
             watch_task.cancel()
             prune_task.cancel()
             repo_check_task.cancel()
+            launch_check_task.cancel()
             store.close()
 
     app = FastAPI(title="ToolOrchestrationHub Dashboard", lifespan=_lifespan)
@@ -275,20 +337,29 @@ def create_app(
     app.state.repo_registry = repo_registry
     app.state.repo_sync_manager = repo_sync_manager
 
-    async def _load_launch_rows(entry) -> list[dict]:
-        """ユーザー追加要件「個別に起動できるようにしたい」向け。各LaunchTargetの
-        疎通確認(urlがあるものだけ)を並行実行し、ブロッキングI/Oでイベントループを
-        ふさがないようToThreadへ逃がす。
+    def _load_launch_rows(entry) -> list[dict]:
+        """ユーザー追加要件「個別に起動できるようにしたい」向け。各LaunchTargetの疎通確認結果を
+        _launch_check_loopが更新したキャッシュから読むだけ(リクエスト経路でのI/Oを避ける)。
+        起動直後などまだ一度もチェックが回っていない場合はreachable=Noneのまま表示する。
         """
-        async def _one(target) -> dict:
-            reachable = None
-            if target.url:
-                reachable = await asyncio.to_thread(check_target_reachable, target)
-            return {"name": target.name, "url": target.url, "reachable": reachable}
+        cached = launch_reachability.get(entry.repo_id)
+        history = launch_history.get(entry.repo_id, {})
+        return [
+            {
+                "name": target.name,
+                "url": target.url,
+                "reachable": cached[i] if cached is not None else None,
+                "last_launched_at": history.get(i, {}).get("launched_at"),
+                "last_launched_by": history.get(i, {}).get("launched_by"),
+                "last_launch_ok": history.get(i, {}).get("ok"),
+                # ローカルPATH参照のみ(ネットワークI/O無し)のため、キャッシュせずリクエスト
+                # 毎に確認して問題ない(既存のurlopenベースreachable判定とは事情が異なる)。
+                "command_available": check_command_available(target.command),
+            }
+            for i, target in enumerate(entry.launch_targets)
+        ]
 
-        return await asyncio.gather(*(_one(t) for t in entry.launch_targets))
-
-    async def _load_repo_rows() -> list[dict]:
+    def _load_repo_rows() -> list[dict]:
         statuses = repo_sync_manager.all_statuses()
         rows = []
         for entry in repo_registry.all():
@@ -306,7 +377,7 @@ def create_app(
                     "has_local_changes": status.has_local_changes if status else None,
                     "error": status.error if status else None,
                     "can_sync": status.can_sync if status else False,
-                    "launch_targets": await _load_launch_rows(entry),
+                    "launch_targets": _load_launch_rows(entry),
                     "launch_note": entry.launch_note,
                 }
             )
@@ -317,7 +388,7 @@ def create_app(
             "registry_rows": data_sources.load_registry_status(registry, monitor),
             "registry_source_path": str(registry.source_path) if registry.source_path else "—",
             "alert_rows": data_sources.load_alert_summary(aggregator),
-            "repo_rows": await _load_repo_rows(),
+            "repo_rows": _load_repo_rows(),
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             "refresh_interval_s": refresh_interval_s,
             "asset_version": _static_asset_version(),
@@ -332,6 +403,10 @@ def create_app(
         """サブ機能profiling_toolの直近runをそのまま整形するのみ。集計・再計算は
         profiling_tool.aggregate側の純関数に委譲する(Hub Phase4の原則を踏襲)。
 
+        使いやすさ改善「run間比較」: 選択中run(同一targetの最新run)と、同一target内で
+        その直前にあたるrunとの差分(p50/p95/p99/count、min/max/avg/latest)も併せて計算する。
+        比較対象となる過去runが無いtargetはNoneのままにする(比較を強行しない)。
+
         profiling_toolはあくまでサブ機能であり、その不具合でHub本体のダッシュボードが
         落ちないよう例外を握りつぶす(非機能要件「Hub自体が単一障害点にならない」)。
         """
@@ -341,13 +416,39 @@ def create_app(
             selected = runs[0] if runs else None
             latency: dict = {}
             usage: dict = {}
+            latency_diff: Optional[dict] = None
+            usage_diff: Optional[dict] = None
+            previous_run: Optional[dict] = None
             if selected is not None:
                 events = profiling_data_sources.load_trace_events(selected["target"], selected["run_id"], traces_dir)
                 latency = profiling_data_sources.latency_summary(events)
                 usage = profiling_data_sources.usage_summary(events)
-            return {"profiling_runs": runs, "profiling_selected": selected, "profiling_latency": latency, "profiling_usage": usage}
+                previous_run = profiling_data_sources.find_previous_run(runs, selected["target"], selected["run_id"])
+                if previous_run is not None:
+                    previous_events = profiling_data_sources.load_trace_events(
+                        previous_run["target"], previous_run["run_id"], traces_dir
+                    )
+                    latency_diff = diff_span_summary(latency, profiling_data_sources.latency_summary(previous_events))
+                    usage_diff = diff_counter_summary(usage, profiling_data_sources.usage_summary(previous_events))
+            return {
+                "profiling_runs": runs,
+                "profiling_selected": selected,
+                "profiling_latency": latency,
+                "profiling_usage": usage,
+                "profiling_previous_run": previous_run,
+                "profiling_latency_diff": latency_diff,
+                "profiling_usage_diff": usage_diff,
+            }
         except Exception:
-            return {"profiling_runs": [], "profiling_selected": None, "profiling_latency": {}, "profiling_usage": {}}
+            return {
+                "profiling_runs": [],
+                "profiling_selected": None,
+                "profiling_latency": {},
+                "profiling_usage": {},
+                "profiling_previous_run": None,
+                "profiling_latency_diff": None,
+                "profiling_usage_diff": None,
+            }
 
     @app.get("/")
     async def dashboard(request: Request, refresh: int = DEFAULT_REFRESH_INTERVAL_S):
@@ -363,6 +464,32 @@ def create_app(
     @app.get("/api/alerts")
     async def api_alerts() -> list[dict]:
         return data_sources.load_alert_summary(aggregator)
+
+    @app.post("/api/alerts/{alert_id}/snooze")
+    async def api_alert_snooze(alert_id: str, payload: Optional[dict] = Body(default=None)) -> dict:
+        """使いやすさ改善: 同一アラートが短時間でopen/resolveを繰り返す(フラッピング)場合に、
+        通知(Windowsトースト/Slack)だけを一時的に抑制する。アラート自体の状態は変えない。
+
+        payloadの{"minutes": N}で抑制時間を指定する(省略時60分)。メモリ上にのみ持つため
+        Hub再起動で解除される(launch_historyと同じ軽量な一時状態の扱い)。
+        """
+        if not any(a.alert_id == alert_id for a in aggregator.all()):
+            raise HTTPException(status_code=404, detail=f"unknown alert_id: {alert_id}")
+        minutes = (payload or {}).get("minutes", 60)
+        try:
+            minutes = float(minutes)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="minutes must be a number")
+        if minutes <= 0:
+            raise HTTPException(status_code=400, detail="minutes must be positive")
+        until = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        aggregator.snooze(alert_id, until)
+        return {"alert_id": alert_id, "snoozed_until": until.isoformat()}
+
+    @app.post("/api/alerts/{alert_id}/unsnooze")
+    async def api_alert_unsnooze(alert_id: str) -> dict:
+        aggregator.unsnooze(alert_id)
+        return {"alert_id": alert_id, "snoozed_until": None}
 
     @app.post("/api/registry/reload")
     async def api_registry_reload() -> dict:
@@ -461,13 +588,13 @@ def create_app(
 
     @app.get("/api/repos")
     async def api_repos() -> list[dict]:
-        return await _load_repo_rows()
+        return _load_repo_rows()
 
     @app.post("/api/repos/check")
     async def api_repos_check() -> list[dict]:
         """13リポジトリ全件のgit fetch(差分検知)を即座に実行する。ワーキングツリーは変更しない。"""
         await repo_sync_manager.check_all()
-        return await _load_repo_rows()
+        return _load_repo_rows()
 
     @app.post("/api/repos/{repo_id}/sync")
     async def api_repo_sync(repo_id: str) -> dict:
@@ -497,6 +624,12 @@ def create_app(
         if not (0 <= target_index < len(entry.launch_targets)):
             raise HTTPException(status_code=404, detail=f"unknown launch target index: {target_index}")
         result = await asyncio.to_thread(launch, entry, entry.launch_targets[target_index], PROJECT_ROOT)
+        launch_history.setdefault(repo_id, {})[target_index] = {
+            "launched_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "launched_by": getpass.getuser(),
+            "ok": result.ok,
+            "message": result.message,
+        }
         if not result.ok:
             raise HTTPException(status_code=500, detail=result.message)
         return {"repo_id": repo_id, "ok": result.ok, "message": result.message, "pid": result.pid}

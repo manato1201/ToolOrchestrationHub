@@ -40,6 +40,19 @@ def list_runs(traces_dir: Path | str = DEFAULT_TRACES_DIR) -> list[dict]:
     return runs
 
 
+def find_previous_run(runs: list[dict], target: str, run_id: str) -> Optional[dict]:
+    """使いやすさ改善「run間比較」向け。同一target内で指定run_idの直前(mtime順で1つ古い)runを返す。
+
+    runsは`list_runs()`の返り値(mtime降順)をそのまま渡す想定。過去runが無い/現在runが
+    見つからない場合はNone(呼び出し側は「比較対象なし」として扱う。差分計算を強行しない)。
+    """
+    same_target = [r for r in runs if r["target"] == target]
+    for i, r in enumerate(same_target):
+        if r["run_id"] == run_id and i + 1 < len(same_target):
+            return same_target[i + 1]
+    return None
+
+
 def load_trace_events(target: str, run_id: str, traces_dir: Path | str = DEFAULT_TRACES_DIR) -> list[dict]:
     path = Path(traces_dir) / target / f"{run_id}.json"
     if not path.exists():
