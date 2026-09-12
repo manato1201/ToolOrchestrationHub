@@ -72,3 +72,48 @@ def summarize_trace(traces: list[dict], span_names: Optional[list[str]] = None, 
     for name in counter_names:
         summary["counters"][name] = counter_summary(traces, name)
     return summary
+
+
+def _diff_metric(current: Optional[float], previous: Optional[float]) -> dict:
+    """使いやすさ改善「run間比較」向け。1指標分のcurrent/previous/delta/pct_changeを返す。
+
+    どちらかがNone(該当run側にそのspan/counterが存在しない)ならdelta/pct_changeは
+    Noneのままにする(比較不能を「0」として偽装しない)。
+    """
+    delta = current - previous if current is not None and previous is not None else None
+    pct_change = (
+        (delta / previous * 100.0) if delta is not None and previous not in (None, 0) else None
+    )
+    return {"current": current, "previous": previous, "delta": delta, "pct_change": pct_change}
+
+
+def diff_span_summary(current: dict, previous: dict) -> dict:
+    """summarize_trace()の"spans"パート同士を比較する(p50/p95/p99/countの前run比)。
+
+    どちらかのrunにしか登場しないspan名も両方の一覧に含め、無い側はNone扱いにする
+    (「消えたspan」「新規に増えたspan」もそのまま見えるようにする)。
+    """
+    names = sorted(set(current) | set(previous))
+    result: dict = {}
+    for name in names:
+        cur = current.get(name, {})
+        prev = previous.get(name, {})
+        result[name] = {
+            key: _diff_metric(cur.get(key), prev.get(key))
+            for key in ("count", "p50", "p95", "p99")
+        }
+    return result
+
+
+def diff_counter_summary(current: dict, previous: dict) -> dict:
+    """summarize_trace()の"counters"パート同士を比較する(min/max/avg/latest/countの前run比)。"""
+    names = sorted(set(current) | set(previous))
+    result: dict = {}
+    for name in names:
+        cur = current.get(name, {})
+        prev = previous.get(name, {})
+        result[name] = {
+            key: _diff_metric(cur.get(key), prev.get(key))
+            for key in ("count", "min", "max", "avg", "latest")
+        }
+    return result

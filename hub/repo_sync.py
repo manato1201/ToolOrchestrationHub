@@ -250,8 +250,13 @@ class RepoSyncManager:
             return status
 
     async def check_all(self) -> dict[str, RepoStatus]:
-        for entry in self._registry.all():
-            await self.check(entry)
+        """全リポジトリのcheck()を並行実行する。
+
+        repo_idごとに独立したasyncio.Lockを持つため(同一リポジトリへの同時アクセスのみ
+        直列化される)、リポジトリ間は安全に並行実行できる。直列実行だと13リポジトリ分の
+        git fetchが実ネットワーク越しに積み上がり、一巡に時間がかかっていた。
+        """
+        await asyncio.gather(*(self.check(entry) for entry in self._registry.all()))
         return self.all_statuses()
 
     async def sync(self, entry: RepoEntry) -> RepoSyncResult:

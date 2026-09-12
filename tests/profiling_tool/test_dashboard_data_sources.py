@@ -88,3 +88,41 @@ def test_read_alert_log_tail(tmp_path):
 def test_read_alert_log_tail_missing_file_returns_empty(tmp_path):
     assert data_sources.read_alert_log_tail(tmp_path / "missing.log") == []
     assert data_sources.read_alert_log_tail(None) == []
+
+
+def test_find_previous_run_returns_the_next_older_run_for_same_target(tmp_path):
+    """使いやすさ改善「run間比較」: 同一target内でのみ直前runを探す(別targetは無視する)。"""
+    import time
+
+    TraceWriter(target="vlm_auto_replay", run_id="run_a", traces_dir=tmp_path).append(
+        [chrome_trace.span("x", ts=0, dur=1)]
+    )
+    time.sleep(0.02)
+    TraceWriter(target="videofactory", run_id="run_other", traces_dir=tmp_path).append(
+        [chrome_trace.span("x", ts=0, dur=1)]
+    )
+    time.sleep(0.02)
+    TraceWriter(target="vlm_auto_replay", run_id="run_b", traces_dir=tmp_path).append(
+        [chrome_trace.span("x", ts=0, dur=1)]
+    )
+
+    runs = data_sources.list_runs(tmp_path)
+    previous = data_sources.find_previous_run(runs, "vlm_auto_replay", "run_b")
+
+    assert previous["run_id"] == "run_a"
+
+
+def test_find_previous_run_returns_none_when_no_older_run_exists(tmp_path):
+    TraceWriter(target="vlm_auto_replay", run_id="run_a", traces_dir=tmp_path).append(
+        [chrome_trace.span("x", ts=0, dur=1)]
+    )
+    runs = data_sources.list_runs(tmp_path)
+    assert data_sources.find_previous_run(runs, "vlm_auto_replay", "run_a") is None
+
+
+def test_find_previous_run_returns_none_for_unknown_run_id(tmp_path):
+    TraceWriter(target="vlm_auto_replay", run_id="run_a", traces_dir=tmp_path).append(
+        [chrome_trace.span("x", ts=0, dur=1)]
+    )
+    runs = data_sources.list_runs(tmp_path)
+    assert data_sources.find_previous_run(runs, "vlm_auto_replay", "does_not_exist") is None

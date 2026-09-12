@@ -42,7 +42,13 @@
       </div>
       <div class="source-meta" style="margin-bottom: var(--space-16);">source: {{ registry_source_path }}(5秒毎に自動監視、変更検知時は自動リロードもされます)</div>
       <div class="card-base">
-        <table>
+        {% if registry_rows|length > 0 %}
+        <div class="table-search-bar">
+          <input id="registry-filter-search" type="search" placeholder="ツール名・IDで検索">
+          <span id="registry-filter-count" class="source-meta"></span>
+        </div>
+        {% endif %}
+        <table id="registry-table">
           <thead>
             <tr>
               <th>Tool</th>
@@ -55,7 +61,7 @@
           </thead>
           <tbody>
             {% for row in registry_rows %}
-            <tr>
+            <tr class="table-search-row" data-search="{{ (row.display_name ~ ' ' ~ row.tool_id ~ ' ' ~ row.category ~ ' ' ~ row.transport)|lower }}">
               <td><strong>{{ row.display_name }}</strong><br><span class="source-meta">{{ row.tool_id }}{% if row.endpoint %} · {{ row.endpoint }}{% endif %}</span></td>
               <td>{{ row.transport }}</td>
               <td><span class="pill pill-category-{{ row.category }}">{{ row.category }}</span></td>
@@ -74,17 +80,49 @@
             {% endfor %}
           </tbody>
         </table>
+        <p id="registry-filter-empty" class="empty" hidden>条件に一致するツールはありません。</p>
       </div>
     </section>
 
     <section>
-      <p class="eyebrow">Phase 3 · Alert Aggregator</p>
-      <h2>Open &amp; Resolved Alerts</h2>
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">Phase 3 · Alert Aggregator</p>
+          <h2>Open &amp; Resolved Alerts</h2>
+        </div>
+        {% if alert_rows|length > 0 %}
+        <div class="alert-export-buttons">
+          <button id="alert-export-json-btn" class="btn-reload" type="button">Export JSON</button>
+          <button id="alert-export-csv-btn" class="btn-reload" type="button">Export CSV</button>
+        </div>
+        {% endif %}
+      </div>
       <div class="card-base">
         {% if alert_rows|length == 0 %}
           <p class="empty">現在アラートはありません。</p>
         {% else %}
-        <table>
+        <div class="alert-filter-bar">
+          <input id="alert-filter-search" type="search" placeholder="メッセージ・ソースで検索">
+          <select id="alert-filter-status">
+            <option value="">Status: all</option>
+            <option value="open">open</option>
+            <option value="resolved">resolved</option>
+          </select>
+          <select id="alert-filter-severity">
+            <option value="">Severity: all</option>
+            <option value="critical">critical</option>
+            <option value="warn">warn</option>
+            <option value="info">info</option>
+          </select>
+          <select id="alert-filter-source">
+            <option value="">Source: all</option>
+            {% for src in alert_rows|map(attribute="source_tool_id")|unique|sort %}
+            <option value="{{ src }}">{{ src }}</option>
+            {% endfor %}
+          </select>
+          <span id="alert-filter-count" class="source-meta"></span>
+        </div>
+        <table id="alert-table">
           <thead>
             <tr>
               <th>Status</th>
@@ -93,21 +131,31 @@
               <th>Message</th>
               <th>First Seen</th>
               <th>Resolved</th>
+              <th>Notify</th>
             </tr>
           </thead>
           <tbody>
             {% for a in alert_rows %}
-            <tr>
+            <tr class="alert-row" data-status="{{ a.status }}" data-severity="{{ a.severity }}" data-source="{{ a.source_tool_id }}" data-search="{{ (a.message ~ ' ' ~ a.source_tool_id)|lower }}">
               <td><span class="pill pill-status-{{ a.status }}">{{ a.status }}</span></td>
               <td><span class="pill pill-severity-{{ a.severity }}">{{ a.severity }}</span></td>
               <td>{{ a.source_tool_id }}</td>
               <td>{{ a.message }}</td>
               <td class="source-meta">{{ a.first_seen_at }}</td>
               <td class="source-meta">{{ a.resolved_at or "—" }}</td>
+              <td>
+                {% if a.snoozed_until %}
+                  <span class="pill pill-category-observed_only">🔕 {{ a.snoozed_until }}まで</span>
+                  <button class="btn-reload alert-unsnooze-btn" data-alert-id="{{ a.alert_id }}" type="button">Unsnooze</button>
+                {% else %}
+                  <button class="btn-reload alert-snooze-btn" data-alert-id="{{ a.alert_id }}" type="button">Snooze 1h</button>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+        <p id="alert-filter-empty" class="empty" hidden>条件に一致するアラートはありません。</p>
         {% endif %}
       </div>
     </section>
@@ -170,16 +218,41 @@
 
         {% if profiling_selected %}
         <h3 style="margin-top: var(--space-24); font-family: var(--font-display); font-weight: 380; font-size: 18px; color: var(--text-parchment);">Latest run — {{ profiling_selected.target }} / {{ profiling_selected.run_id }}</h3>
+        {% if profiling_previous_run %}
+        <p class="source-meta">前回run({{ profiling_previous_run.run_id }}, {{ profiling_previous_run.modified_at }})と比較</p>
+        {% else %}
+        <p class="source-meta">同一targetの過去runがまだ無いため比較なし。</p>
+        {% endif %}
         <div class="two-col" style="margin-top: var(--space-16);">
           <div>
             {% if profiling_latency|length == 0 %}
               <p class="empty">spanイベントがありません。</p>
             {% else %}
             <table>
-              <thead><tr><th>Span</th><th>p50</th><th>p95</th></tr></thead>
+              <thead><tr><th>Span</th><th>p50</th><th>p95</th>{% if profiling_previous_run %}<th>vs前回 (p50)</th>{% endif %}</tr></thead>
               <tbody>
                 {% for name, s in profiling_latency.items() %}
-                <tr><td>{{ name }}</td><td>{{ (s.p50 / 1000) | round(2) }} ms</td><td>{{ (s.p95 / 1000) | round(2) }} ms</td></tr>
+                <tr>
+                  <td>{{ name }}</td>
+                  <td>{{ (s.p50 / 1000) | round(2) }} ms</td>
+                  <td>{{ (s.p95 / 1000) | round(2) }} ms</td>
+                  {% if profiling_previous_run %}
+                  <td>
+                    {% set d = profiling_latency_diff[name].p50 if profiling_latency_diff and name in profiling_latency_diff else none %}
+                    {% if d and d.delta is not none %}
+                      {% if d.delta > 0 %}
+                        <span class="pill pill-down">+{{ (d.delta / 1000) | round(2) }} ms{% if d.pct_change is not none %} (+{{ d.pct_change | round(1) }}%){% endif %}</span>
+                      {% elif d.delta < 0 %}
+                        <span class="pill pill-up">{{ (d.delta / 1000) | round(2) }} ms{% if d.pct_change is not none %} ({{ d.pct_change | round(1) }}%){% endif %}</span>
+                      {% else %}
+                        <span class="pill pill-unknown">変化なし</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="pill pill-unknown">前回に無い</span>
+                    {% endif %}
+                  </td>
+                  {% endif %}
+                </tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -190,10 +263,24 @@
               <p class="empty">counterイベントがありません。</p>
             {% else %}
             <table>
-              <thead><tr><th>Counter</th><th>Latest</th><th>Avg</th></tr></thead>
+              <thead><tr><th>Counter</th><th>Latest</th><th>Avg</th>{% if profiling_previous_run %}<th>vs前回 (avg)</th>{% endif %}</tr></thead>
               <tbody>
                 {% for name, u in profiling_usage.items() %}
-                <tr><td>{{ name }}</td><td>{{ u.latest }}</td><td>{{ u.avg | round(2) if u.avg is not none else "—" }}</td></tr>
+                <tr>
+                  <td>{{ name }}</td>
+                  <td>{{ u.latest }}</td>
+                  <td>{{ u.avg | round(2) if u.avg is not none else "—" }}</td>
+                  {% if profiling_previous_run %}
+                  <td>
+                    {% set d = profiling_usage_diff[name].avg if profiling_usage_diff and name in profiling_usage_diff else none %}
+                    {% if d and d.delta is not none %}
+                      {{ "%+.2f"|format(d.delta) }}{% if d.pct_change is not none %} ({{ "%+.1f"|format(d.pct_change) }}%){% endif %}
+                    {% else %}
+                      <span class="pill pill-unknown">前回に無い</span>
+                    {% endif %}
+                  </td>
+                  {% endif %}
+                </tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -224,13 +311,17 @@
         {% if repo_rows|length == 0 %}
           <p class="empty">登録リポジトリがありません。</p>
         {% else %}
-        <table>
+        <div class="table-search-bar">
+          <input id="repos-filter-search" type="search" placeholder="リポジトリ名・URLで検索">
+          <span id="repos-filter-count" class="source-meta"></span>
+        </div>
+        <table id="repos-table">
           <thead>
             <tr><th>Repository</th><th>Branch</th><th>Status</th><th>Checked</th><th>Sync</th><th>Launch</th></tr>
           </thead>
           <tbody>
             {% for r in repo_rows %}
-            <tr>
+            <tr class="table-search-row" data-search="{{ (r.display_name ~ ' ' ~ r.remote_url ~ ' ' ~ r.branch)|lower }}">
               <td><strong>{{ r.display_name }}</strong><br><span class="source-meta">{{ r.remote_url }}</span></td>
               <td>{{ r.branch }}</td>
               <td>
@@ -255,13 +346,29 @@
               </td>
               <td>
                 <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                  {% if r.launch_targets|length > 1 %}
+                    <button class="btn-reload repo-launch-all-btn" data-repo-id="{{ r.repo_id }}" type="button">Start all ({{ r.launch_targets|length }})</button>
+                  {% endif %}
                   {% for lt in r.launch_targets %}
-                    <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" type="button">
-                      Start: {{ lt.name }}
-                      {% if lt.reachable is not none %}
-                        {% if lt.reachable %}<span class="pill pill-up">running</span>{% else %}<span class="pill pill-unknown">stopped</span>{% endif %}
+                    <div>
+                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" type="button">
+                        Start: {{ lt.name }}
+                        {% if lt.reachable is not none %}
+                          {% if lt.reachable %}<span class="pill pill-up">running</span>{% else %}<span class="pill pill-unknown">stopped</span>{% endif %}
+                        {% endif %}
+                      </button>
+                      {% if lt.command_available is sameas false %}
+                      <div class="source-meta" style="margin-top:2px; color: var(--state-danger-text);">
+                        ⚠ 実行コマンドが見つかりません(未インストールの可能性)
+                      </div>
                       {% endif %}
-                    </button>
+                      {% if lt.last_launched_at %}
+                      <div class="source-meta" style="margin-top:2px;">
+                        最終起動: {{ lt.last_launched_at }} ({{ lt.last_launched_by }})
+                        {% if lt.last_launch_ok is sameas false %}<span class="pill pill-down">失敗</span>{% endif %}
+                      </div>
+                      {% endif %}
+                    </div>
                   {% endfor %}
                   <button class="btn-reload repo-open-folder-btn" data-repo-id="{{ r.repo_id }}" type="button">Open folder</button>
                 </div>
@@ -273,6 +380,7 @@
             {% endfor %}
           </tbody>
         </table>
+        <p id="repos-filter-empty" class="empty" hidden>条件に一致するリポジトリはありません。</p>
         {% endif %}
       </div>
     </section>
@@ -365,6 +473,39 @@
       });
     });
 
+    // 複数プロセス構成のリポジトリ(WeatherGeoBridge等)向け一括起動。既存の単体起動
+    // エンドポイントを順番に叩くだけで、Hub側に新しい一括起動APIは追加しない。
+    document.querySelectorAll(".repo-launch-all-btn").forEach((btn) => {
+      const originalText = btn.textContent;
+      btn.addEventListener("click", async (event) => {
+        const target = event.currentTarget;
+        const repoId = target.dataset.repoId;
+        const launchButtons = Array.from(
+          document.querySelectorAll(`.repo-launch-btn[data-repo-id="${repoId}"]`)
+        );
+        target.disabled = true;
+        target.textContent = "Starting all...";
+        let failedCount = 0;
+        for (const launchBtn of launchButtons) {
+          const targetIndex = launchBtn.dataset.targetIndex;
+          try {
+            const res = await fetch(`/api/repos/${repoId}/launch/${targetIndex}`, { method: "POST" });
+            if (!res.ok) failedCount += 1;
+          } catch (err) {
+            failedCount += 1;
+          }
+        }
+        if (failedCount > 0) {
+          alert(`${failedCount}件の起動に失敗しました。個別のStartボタンで状況を確認してください。`);
+          target.disabled = false;
+          target.textContent = originalText;
+        } else {
+          target.textContent = "Started all";
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      });
+    });
+
     document.querySelectorAll(".repo-open-folder-btn").forEach((btn) => {
       btn.addEventListener("click", async (event) => {
         const target = event.currentTarget;
@@ -380,6 +521,177 @@
           alert(`フォルダを開けませんでした: ${err}`);
         } finally {
           target.disabled = false;
+        }
+      });
+    });
+
+    // Registry/Repositoriesテーブル向けの汎用テキスト検索。サーバー側は一切
+    // 再計算せず、既に描画済みの行(.table-search-row / data-search)をクライアント側で
+    // 絞り込むだけ(アラートフィルタと同じ設計方針)。
+    function setupTableSearch(inputId, tableId, countId, emptyId) {
+      const searchInput = document.getElementById(inputId);
+      const table = document.getElementById(tableId);
+      const countLabel = document.getElementById(countId);
+      const emptyNotice = document.getElementById(emptyId);
+      if (!searchInput || !table) return;
+
+      const rows = Array.from(table.querySelectorAll(".table-search-row"));
+
+      function applyFilter() {
+        const query = searchInput.value.trim().toLowerCase();
+        let shown = 0;
+        rows.forEach((row) => {
+          const matches = !query || row.dataset.search.includes(query);
+          row.hidden = !matches;
+          if (matches) shown += 1;
+        });
+        if (countLabel) countLabel.textContent = `${shown} / ${rows.length} 件表示`;
+        table.hidden = shown === 0;
+        if (emptyNotice) emptyNotice.hidden = shown !== 0;
+      }
+
+      searchInput.addEventListener("input", applyFilter);
+      applyFilter();
+    }
+
+    setupTableSearch("registry-filter-search", "registry-table", "registry-filter-count", "registry-filter-empty");
+    setupTableSearch("repos-filter-search", "repos-table", "repos-filter-count", "repos-filter-empty");
+
+    // アラートのフィルタ/検索(サーバー側は一切再計算しない。既に描画済みの行を
+    // クライアント側で絞り込むだけ。alert_rows自体はHubの正データそのまま)。
+    (function setupAlertFilter() {
+      const searchInput = document.getElementById("alert-filter-search");
+      const statusSelect = document.getElementById("alert-filter-status");
+      const severitySelect = document.getElementById("alert-filter-severity");
+      const sourceSelect = document.getElementById("alert-filter-source");
+      const countLabel = document.getElementById("alert-filter-count");
+      const emptyNotice = document.getElementById("alert-filter-empty");
+      const table = document.getElementById("alert-table");
+      if (!searchInput || !table) return;
+
+      const rows = Array.from(table.querySelectorAll(".alert-row"));
+
+      function applyFilter() {
+        const query = searchInput.value.trim().toLowerCase();
+        const status = statusSelect.value;
+        const severity = severitySelect.value;
+        const source = sourceSelect.value;
+        let shown = 0;
+        rows.forEach((row) => {
+          const matches =
+            (!status || row.dataset.status === status) &&
+            (!severity || row.dataset.severity === severity) &&
+            (!source || row.dataset.source === source) &&
+            (!query || row.dataset.search.includes(query));
+          row.hidden = !matches;
+          if (matches) shown += 1;
+        });
+        countLabel.textContent = `${shown} / ${rows.length} 件表示`;
+        table.hidden = shown === 0;
+        emptyNotice.hidden = shown !== 0;
+      }
+
+      [searchInput, statusSelect, severitySelect, sourceSelect].forEach((el) => {
+        el.addEventListener("input", applyFilter);
+        el.addEventListener("change", applyFilter);
+      });
+      applyFilter();
+    })();
+
+    // アラート履歴のエクスポート。/api/alertsが返す正データをそのままJSON化、
+    // またはCSVへ変換してブラウザ内でダウンロードする(Hub側で新たなファイルは生成しない)。
+    (function setupAlertExport() {
+      const jsonBtn = document.getElementById("alert-export-json-btn");
+      const csvBtn = document.getElementById("alert-export-csv-btn");
+      if (!jsonBtn && !csvBtn) return;
+
+      function downloadBlob(content, mime, filename) {
+        const blob = new Blob([content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function toCsv(rows) {
+        const columns = ["alert_id", "status", "severity", "source_tool_id", "message", "first_seen_at", "resolved_at"];
+        const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const lines = [columns.join(",")];
+        rows.forEach((r) => lines.push(columns.map((c) => escape(r[c])).join(",")));
+        return lines.join("\r\n");
+      }
+
+      async function fetchAlerts() {
+        const res = await fetch("/api/alerts");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      }
+
+      if (jsonBtn) {
+        jsonBtn.addEventListener("click", async () => {
+          try {
+            const rows = await fetchAlerts();
+            downloadBlob(JSON.stringify(rows, null, 2), "application/json", "alerts.json");
+          } catch (err) {
+            alert(`エクスポートに失敗しました: ${err}`);
+          }
+        });
+      }
+      if (csvBtn) {
+        csvBtn.addEventListener("click", async () => {
+          try {
+            const rows = await fetchAlerts();
+            downloadBlob(toCsv(rows), "text/csv;charset=utf-8", "alerts.csv");
+          } catch (err) {
+            alert(`エクスポートに失敗しました: ${err}`);
+          }
+        });
+      }
+    })();
+
+    // アラートのスヌーズ/ミュート。通知(トースト/Slack)だけを一時的に抑制する
+    // (アラート自体のopen/resolved状態は変えない)。
+    document.querySelectorAll(".alert-snooze-btn").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        const target = event.currentTarget;
+        const alertId = target.dataset.alertId;
+        target.disabled = true;
+        try {
+          const res = await fetch(`/api/alerts/${alertId}/snooze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ minutes: 60 }),
+          });
+          if (!res.ok) {
+            const body = await res.json();
+            throw new Error(body.detail || `HTTP ${res.status}`);
+          }
+          window.location.reload();
+        } catch (err) {
+          target.disabled = false;
+          alert(`スヌーズに失敗しました: ${err}`);
+        }
+      });
+    });
+
+    document.querySelectorAll(".alert-unsnooze-btn").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        const target = event.currentTarget;
+        const alertId = target.dataset.alertId;
+        target.disabled = true;
+        try {
+          const res = await fetch(`/api/alerts/${alertId}/unsnooze`, { method: "POST" });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          window.location.reload();
+        } catch (err) {
+          target.disabled = false;
+          alert(`スヌーズ解除に失敗しました: ${err}`);
         }
       });
     });
