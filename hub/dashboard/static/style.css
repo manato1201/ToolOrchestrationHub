@@ -366,6 +366,64 @@ tr:last-child td {
   cursor: default;
 }
 
+.alert-export-buttons {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.alert-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+}
+
+.alert-filter-bar input,
+.alert-filter-bar select {
+  background: var(--surface-void);
+  color: var(--text-parchment);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-square);
+  padding: 6px 12px;
+  font-family: var(--font-label);
+  font-size: 13px;
+}
+
+.alert-filter-bar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.table-search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+}
+
+.table-search-bar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: var(--surface-void);
+  color: var(--text-parchment);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-square);
+  padding: 6px 12px;
+  font-family: var(--font-label);
+  font-size: 13px;
+}
+
+.table-search-bar .source-meta {
+  white-space: nowrap;
+}
+
+.alert-filter-bar #alert-filter-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 footer {
   background: var(--surface-void);
   color: var(--text-ash);

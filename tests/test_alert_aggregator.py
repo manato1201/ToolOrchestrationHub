@@ -162,3 +162,55 @@ def test_same_failure_from_two_sources_merges_into_one_record():
 
     assert first is second
     assert len(aggregator.all()) == 1
+
+
+def test_snooze_suppresses_on_open_notification_but_not_state():
+    """使いやすさ改善: フラッピング(短時間でのopen/resolve繰り返し)対策のスヌーズ。
+    通知(on_open)だけを抑制し、アラート自体のopen状態やdedupには影響しない。
+    """
+    opened = []
+    aggregator = AlertAggregator(on_open=opened.append)
+    alert_id = normalize_from_health_check("profiling_tool", HealthResult(is_up=False)).alert_id
+
+    aggregator.snooze(alert_id, until=datetime.now(timezone.utc) + timedelta(hours=1))
+    alert = aggregator.ingest(normalize_from_health_check("profiling_tool", HealthResult(is_up=False)))
+
+    assert opened == []  # 通知は抑制される
+    assert alert in aggregator.open_alerts()  # だが状態は通常通りopenになる
+
+
+def test_snooze_suppresses_on_resolve_notification():
+    resolved = []
+    aggregator = AlertAggregator(on_resolve=resolved.append)
+    alert = aggregator.ingest(normalize_from_health_check("profiling_tool", HealthResult(is_up=False)))
+
+    aggregator.snooze(alert.alert_id, until=datetime.now(timezone.utc) + timedelta(hours=1))
+    result = aggregator.resolve_by_id(alert.alert_id)
+
+    assert resolved == []
+    assert result is not None
+    assert result.is_open is False
+
+
+def test_snooze_expires_automatically_after_until():
+    opened = []
+    aggregator = AlertAggregator(on_open=opened.append)
+    alert_id = normalize_from_health_check("profiling_tool", HealthResult(is_up=False)).alert_id
+
+    aggregator.snooze(alert_id, until=datetime.now(timezone.utc) - timedelta(seconds=1))  # 既に期限切れ
+    aggregator.ingest(normalize_from_health_check("profiling_tool", HealthResult(is_up=False)))
+
+    assert len(opened) == 1  # 期限切れなので通知は抑制されない
+    assert aggregator.is_snoozed(alert_id) is False
+
+
+def test_unsnooze_restores_notifications():
+    opened = []
+    aggregator = AlertAggregator(on_open=opened.append)
+    alert_id = normalize_from_health_check("profiling_tool", HealthResult(is_up=False)).alert_id
+
+    aggregator.snooze(alert_id, until=datetime.now(timezone.utc) + timedelta(hours=1))
+    aggregator.unsnooze(alert_id)
+    aggregator.ingest(normalize_from_health_check("profiling_tool", HealthResult(is_up=False)))
+
+    assert len(opened) == 1

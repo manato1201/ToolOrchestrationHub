@@ -171,6 +171,32 @@ class AlertAggregator:
         self._on_open = on_open
         self._on_resolve = on_resolve
         self._alerts: list[AlertRecord] = list(store.load_all()) if store is not None else []
+        # alert_id -> スヌーズ解除時刻。使いやすさ改善(フラッピング対策): 同一アラートが
+        # 短時間でopen/resolveを繰り返す場合に通知だけを一時的に抑制する。アラート自体の
+        # open/resolved状態・dedupには一切影響しない(表示は通常通り)。永続化はせず
+        # Hubプロセスのメモリ上にのみ持つ(launch_historyと同じく軽量な一時状態の扱い)。
+        self._snoozed_until: dict[str, datetime] = {}
+
+    def snooze(self, alert_id: str, until: datetime) -> None:
+        """指定アラートの通知(on_open/on_resolve)をuntilまで抑制する。"""
+        self._snoozed_until[alert_id] = until
+
+    def unsnooze(self, alert_id: str) -> None:
+        self._snoozed_until.pop(alert_id, None)
+
+    def snoozed_until(self, alert_id: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
+        """スヌーズ中ならその解除時刻を返す。期限切れなら自動でクリアしてNoneを返す。"""
+        until = self._snoozed_until.get(alert_id)
+        if until is None:
+            return None
+        now = now if now is not None else datetime.now(timezone.utc)
+        if now >= until:
+            del self._snoozed_until[alert_id]
+            return None
+        return until
+
+    def is_snoozed(self, alert_id: str, *, now: Optional[datetime] = None) -> bool:
+        return self.snoozed_until(alert_id, now=now) is not None
 
     def ingest(self, new_alert: AlertRecord) -> AlertRecord:
         """新規アラートをdedupしつつ取り込む。既存openレコードがあればそれを返す。"""
@@ -179,7 +205,7 @@ class AlertAggregator:
             self._alerts.append(new_alert)
             if self._store is not None:
                 self._store.save(new_alert)
-            if self._on_open is not None:
+            if self._on_open is not None and not self.is_snoozed(new_alert.alert_id):
                 self._on_open(new_alert)
         return upserted
 
@@ -189,7 +215,7 @@ class AlertAggregator:
                 resolved = resolve_alert(alert)
                 if self._store is not None:
                     self._store.save(resolved)
-                if self._on_resolve is not None:
+                if self._on_resolve is not None and not self.is_snoozed(alert_id):
                     self._on_resolve(resolved)
                 return resolved
         return None

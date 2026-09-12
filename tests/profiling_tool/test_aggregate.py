@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import statistics
 
-from profiling_tool.aggregate import counter_summary, percentile_by_span_name, summarize_trace
+from profiling_tool.aggregate import (
+    counter_summary,
+    diff_counter_summary,
+    diff_span_summary,
+    percentile_by_span_name,
+    summarize_trace,
+)
 from profiling_tool.core import chrome_trace
 
 
@@ -63,3 +69,46 @@ def test_summarize_trace_covers_both_spans_and_counters_without_span_names_arg()
     summary = summarize_trace(traces)
     assert summary["spans"]["Narrate"]["count"] == 2
     assert summary["counters"]["active_voices"]["latest"] == 5
+
+
+def test_diff_span_summary_computes_delta_and_pct_change():
+    """使いやすさ改善「run間比較」: p50/p95/p99/countが前runと比べてどう変化したか。"""
+    current = {"Narrate": {"count": 10, "p50": 120, "p95": 200, "p99": 250}}
+    previous = {"Narrate": {"count": 8, "p50": 100, "p95": 180, "p99": 240}}
+
+    diff = diff_span_summary(current, previous)
+
+    assert diff["Narrate"]["p50"] == {"current": 120, "previous": 100, "delta": 20, "pct_change": 20.0}
+    assert diff["Narrate"]["count"]["delta"] == 2
+
+
+def test_diff_span_summary_handles_span_missing_from_one_side():
+    """前runに無かった新規spanや、今回消えたspanもNoneのまま両方に含める(隠さない)。"""
+    current = {"NewStage": {"count": 3, "p50": 10, "p95": 20, "p99": 30}}
+    previous = {"OldStage": {"count": 5, "p50": 40, "p95": 50, "p99": 60}}
+
+    diff = diff_span_summary(current, previous)
+
+    assert set(diff.keys()) == {"NewStage", "OldStage"}
+    assert diff["NewStage"]["p50"] == {"current": 10, "previous": None, "delta": None, "pct_change": None}
+    assert diff["OldStage"]["p50"] == {"current": None, "previous": 40, "delta": None, "pct_change": None}
+
+
+def test_diff_counter_summary_computes_delta_for_avg_and_latest():
+    current = {"active_voices": {"count": 5, "min": 2, "max": 10, "avg": 6.0, "latest": 8}}
+    previous = {"active_voices": {"count": 5, "min": 1, "max": 9, "avg": 5.0, "latest": 4}}
+
+    diff = diff_counter_summary(current, previous)
+
+    assert diff["active_voices"]["avg"]["delta"] == 1.0
+    assert diff["active_voices"]["latest"]["delta"] == 4
+
+
+def test_diff_metric_does_not_divide_by_zero_previous():
+    current = {"x": {"count": 1, "min": 0, "max": 0, "avg": 5.0, "latest": 5.0}}
+    previous = {"x": {"count": 1, "min": 0, "max": 0, "avg": 0.0, "latest": 0.0}}
+
+    diff = diff_counter_summary(current, previous)
+
+    assert diff["x"]["avg"]["delta"] == 5.0
+    assert diff["x"]["avg"]["pct_change"] is None  # 0からの変化率は定義しない(ZeroDivisionErrorにしない)
