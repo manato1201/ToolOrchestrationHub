@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>見つかりません — ToolOrchestrationHub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+</head>
+<body class="not-found-body">
+  {#- 遊びごころは404に集める(原則 P8)。通常の画面は静かに保つ。動きは prefers-reduced-motion で止まる。 -#}
+  <main class="not-found">
+    <svg class="not-found-svg" viewBox="0 0 120 96" aria-hidden="true" focusable="false">
+      <ellipse class="office-shadow" cx="60" cy="86" rx="46" ry="7"/>
+      <rect class="chair" x="53" y="27" width="14" height="16" rx="4"/>
+      <polygon class="desk-top" points="60,44 102,62 60,80 18,62"/>
+      <polygon class="desk-left" points="18,62 60,80 60,88 18,70"/>
+      <polygon class="desk-right" points="60,80 102,62 102,70 60,88"/>
+      <g class="monitor">
+        <rect class="monitor-body" x="45" y="37" width="30" height="20" rx="2.5"/>
+        <rect class="monitor-screen" x="47.5" y="39.5" width="25" height="15" rx="1.5"/>
+        <text class="monitor-glyph" x="60" y="51" text-anchor="middle">?</text>
+        <rect class="monitor-stand" x="56.5" y="57" width="7" height="3" rx="1"/>
+      </g>
+      <g class="wanderer">
+        <circle class="head" cx="96" cy="26" r="6"/>
+        <rect class="body" x="90" y="32" width="12" height="12" rx="4"/>
+      </g>
+    </svg>
+    <p class="eyebrow">404</p>
+    <h1 class="not-found-title">この席には、誰もいません</h1>
+    <p class="not-found-text">お探しのページは、どのツールの机にも見つかりませんでした。</p>
+    <p><a class="btn-reload" href="/">ダッシュボードへ戻る</a></p>
+  </main>
+</body>
+</html>

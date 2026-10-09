@@ -31,6 +31,9 @@ class LivenessMonitor:
         self._ci_success: dict[str, float] = {}
         self._last_polled_at: dict[str, float] = {}
         self._results: dict[str, HealthResult] = {}
+        # 最後にup(生きている)と確認できた時刻。ダッシュボードの「最終応答 3分前」表示用で、
+        # ハートビート/CI成功の受信時刻と合わせて last_signal_age_s() が参照する。
+        self._last_up_at: dict[str, float] = {}
 
     def record_heartbeat(self, tool_id: str, at: Optional[float] = None) -> None:
         """rpc系ツールから届いたハートビートの受信を記録する(受動監視。接続は開かない)。"""
@@ -42,6 +45,23 @@ class LivenessMonitor:
 
     def last_result(self, tool_id: str) -> Optional[HealthResult]:
         return self._results.get(tool_id)
+
+    def last_signal_age_s(self, tool_id: str, *, now: Optional[float] = None) -> Optional[float]:
+        """ツールから最後に「生きている」信号(ハートビート/CI成功/upの死活監視結果)を得てからの経過秒。
+
+        一度も信号が無ければNone。表示専用の読み取りで、Hubからツールへ何かを送ることはない。
+        """
+        now = now if now is not None else time.monotonic()
+        candidates = [
+            t
+            for t in (
+                self._heartbeats.get(tool_id),
+                self._ci_success.get(tool_id),
+                self._last_up_at.get(tool_id),
+            )
+            if t is not None
+        ]
+        return now - max(candidates) if candidates else None
 
     async def check_once(self, entry: ToolEntry, *, now: Optional[float] = None) -> Optional[HealthResult]:
         """1ツール分のliveness評価を行う。categoryに応じて能動/受動/スキップを切り替える。"""
@@ -60,6 +80,8 @@ class LivenessMonitor:
             result = self._eval_rpc_check(entry, now)
             if result is not None:
                 self._results[entry.tool_id] = result
+                if result.is_up:
+                    self._last_up_at[entry.tool_id] = now
             return result
 
         # category is monitored: 能動チェック。poll_interval_sでレート制限する。
@@ -72,6 +94,8 @@ class LivenessMonitor:
         self._last_polled_at[entry.tool_id] = now
         if result is not None:
             self._results[entry.tool_id] = result
+            if result.is_up:
+                self._last_up_at[entry.tool_id] = now
         return result
 
     async def _dispatch_active(self, entry: ToolEntry, now: float) -> Optional[HealthResult]:

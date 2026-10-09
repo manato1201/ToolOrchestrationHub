@@ -61,12 +61,22 @@ v2.4: 再監査で見つけた不備の修正(check_target_reachableの例外捕
 - アラートのスヌーズ/ミュート(AlertAggregator.snooze/unsnooze。通知のみ抑制、状態は不変)
 - Registry & Liveness / Repositoriesテーブルの横断検索(クライアント側のみ)
 - プロファイリングのrun間比較(profiling_tool.aggregate.diff_span_summary/diff_counter_summary)
+
+v2.5: IMPROVEMENT_DESIGN_2026-10 / IMPROVEMENT_PLAN_2026-10 に沿ったUI・運用の改善(詳細はREADME)。
+- 画面を「左=ツール一覧 / 中央=詳細・オフィス / 右=サマリ + 下=アラート履歴スライダー」へ再構成。
+  概況はpartials/overview.htmlの1つのテンプレートで、ライブ(/)と過去の時刻の再現(/fragments/overview?at=)の
+  両方を描く。状態判定はhub/tool_state.py、組み立てはhub/overview.py(どちらも純関数)
+- GET /api/overview?at=, GET /api/history/timeline, GET /fragments/overview?at=(履歴スライダー用)
+- アラートに発生回数・見る順番の補助(hub/alert_priority.py)・運用手順(hub/runbooks.yaml)を添える。
+  どちらも表示専用で、通知・dedup・resolveの経路には繋がない(hub/alert_view.py)
+- ブラウザでの404のみ遊びのあるページを返す(APIは従来どおりJSON)
 """
 
 from __future__ import annotations
 
 import asyncio
 import getpass
+import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -74,8 +84,10 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import data_sources
 from ..alert_aggregator import (
@@ -88,12 +100,17 @@ from ..alert_aggregator import (
     normalize_from_profiling_tool,
     normalize_from_visual_regression_qa,
 )
+from ..alert_history import build_timeline, parse_at
+from ..alert_priority import AlertPriorityClassifier, RuleBasedPriorityClassifier
 from ..alert_store import DEFAULT_DB_PATH, SqliteAlertStore
+from ..alert_view import make_alert_decorator
 from ..health.runner import LivenessMonitor
 from ..notify import default_sink
+from ..overview import build_overview
 from ..process_launcher import check_command_available, check_target_reachable, launch, open_folder
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
+from ..runbooks import DEFAULT_RUNBOOKS_PATH, RunbookCatalog, RunbookError
 
 # profiling_toolはHubのサブ機能(同一リポジトリ内の別トップレベルパッケージ)なので
 # 絶対importで参照する。Hub自身のRegistry/AlertAggregator等とは独立した1機能として扱い、
@@ -101,6 +118,8 @@ from ..repo_sync import RepoRegistry, RepoSyncManager
 # 内部実装へ踏み込まない)。
 from profiling_tool.aggregate import diff_counter_summary, diff_span_summary
 from profiling_tool.dashboard import data_sources as profiling_data_sources
+
+logger = logging.getLogger(__name__)
 
 # LivenessMonitor.check_all()を呼び出す頻度。実際のネットワーク呼び出しは各ToolEntryの
 # poll_interval_sでレート制限されるため、このループ自体の頻度は「非hot-path原則」に抵触しない。
@@ -135,17 +154,19 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def _static_asset_version() -> str:
-    """style.cssのmtimeをキャッシュバスティング用のクエリ値として使う。
+    """style.css / app.js のmtime(新しい方)をキャッシュバスティング用のクエリ値として使う。
 
-    StaticFilesはCache-Controlを付けないため、ブラウザが古いCSSを再検証なしに
-    キャッシュし続けることがある。<link>のURLにこの値を付与し、ファイルを
-    更新するたびにURL自体を変えることで確実に新しいCSSを取得させる。
+    StaticFilesはCache-Controlを付けないため、ブラウザが古いCSS/JSを再検証なしに
+    キャッシュし続けることがある。<link>/<script>のURLにこの値を付与し、ファイルを
+    更新するたびにURL自体を変えることで確実に新しい版を取得させる。
     """
-    css_path = BASE_DIR / "static" / "style.css"
-    try:
-        return str(int(css_path.stat().st_mtime))
-    except FileNotFoundError:
-        return "0"
+    mtimes = []
+    for name in ("style.css", "app.js"):
+        try:
+            mtimes.append(int((BASE_DIR / "static" / name).stat().st_mtime))
+        except FileNotFoundError:
+            continue
+    return str(max(mtimes)) if mtimes else "0"
 
 # Phase4で表示する3種のファイルアーティファクト。(表示ラベル, registry.yamlのcheck_paramsが
 # 持つtool_id/キー, 未設定時のフォールバックパス, data_sourcesの読み込み関数)を1箇所にまとめ、
@@ -194,6 +215,8 @@ def create_app(
     db_path: Optional[str] = None,
     profiling_traces_dir: Optional[str] = None,
     repos_path: Optional[str] = None,
+    runbooks_path: Optional[str] = None,
+    classifier: Optional[AlertPriorityClassifier] = None,
 ) -> FastAPI:
     registry = (
         ToolRegistry.load(registry_path) if registry_path else ToolRegistry.load()
@@ -205,6 +228,16 @@ def create_app(
     repo_sync_manager = RepoSyncManager(repo_registry, repo_root=PROJECT_ROOT)
     aggregator = AlertAggregator(
         store=store, on_open=sink.notify_opened, on_resolve=sink.notify_resolved
+    )
+    # 運用手順書(H6)と見る順番の補助(H2)。どちらも表示専用で、通知・dedup・resolveの経路には
+    # 繋がない。手順書のファイルが壊れていても、Hub本体は手順書なしで起動し続ける。
+    try:
+        runbooks = RunbookCatalog.load(runbooks_path or DEFAULT_RUNBOOKS_PATH)
+    except (RunbookError, OSError):
+        logger.exception("runbooks.yamlを読み込めませんでした。運用手順なしで起動します")
+        runbooks = RunbookCatalog.empty()
+    decorate_alert = make_alert_decorator(
+        registry, classifier if classifier is not None else RuleBasedPriorityClassifier(), runbooks
     )
     # repo_id -> (target_indexに対応する)reachable値のリスト。_launch_check_loopが
     # 定期更新し、リクエストハンドラ側は読むだけにする(ネットワークI/Oをリクエスト経路から追い出す)。
@@ -331,6 +364,31 @@ def create_app(
     # ProfilingTool実装時に発見したのと同じ問題で、ensure_ascii=Falseに変更する。
     templates.env.policies["json.dumps_kwargs"] = {"sort_keys": True, "ensure_ascii": False}
 
+    def _localtime(value: Optional[str]) -> str:
+        """ISO 8601(UTC)の時刻を、Hubを動かしているマシンのローカル時刻「10/09 12:17:55」にする(表示専用)。"""
+        if not value:
+            return "—"
+        try:
+            return datetime.fromisoformat(value).astimezone().strftime("%m/%d %H:%M:%S")
+        except ValueError:
+            return value
+
+    templates.env.filters["localtime"] = _localtime
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception(request: Request, exc: StarletteHTTPException):
+        """ブラウザで存在しないページを開いたときだけ、遊びのある404ページを返す(IMPROVEMENT H7 / 原則 P8)。
+
+        APIや静的ファイルへのリクエスト(Acceptにtext/htmlが無い、または/api/配下)は従来どおりJSONの
+        エラー応答のまま。通常画面は静かに保ち、遊びごころは404に集める。
+        """
+        wants_html = "text/html" in request.headers.get("accept", "")
+        if exc.status_code == 404 and wants_html and not request.url.path.startswith("/api/"):
+            return templates.TemplateResponse(
+                request, "404.html", {"asset_version": _static_asset_version()}, status_code=404
+            )
+        return await http_exception_handler(request, exc)
+
     app.state.registry = registry
     app.state.monitor = monitor
     app.state.aggregator = aggregator
@@ -383,11 +441,40 @@ def create_app(
             )
         return rows
 
+    def _alert_rows() -> list[dict]:
+        return data_sources.load_alert_summary(aggregator, registry=registry, decorate=decorate_alert)
+
+    def _live_overview() -> dict:
+        entries = registry.all()
+        return build_overview(
+            entries,
+            alerts=aggregator.all(),
+            results={e.tool_id: monitor.last_result(e.tool_id) for e in entries},
+            ages={e.tool_id: monitor.last_signal_age_s(e.tool_id) for e in entries},
+            decorate_alert=decorate_alert,
+        )
+
+    def _history_overview(at: datetime) -> dict:
+        """スライダーで選んだ時刻の状態を、アラート履歴だけから再構成する(死活監視の結果は混ぜない)。"""
+        overview = build_overview(registry.all(), alerts=aggregator.all(), at=at, decorate_alert=decorate_alert)
+        overview["at_local_text"] = at.astimezone().strftime("%m/%d %H:%M:%S")
+        return overview
+
+    def _parse_at_or_400(at: Optional[str]) -> Optional[datetime]:
+        if at is None or at.strip() == "":
+            return None
+        try:
+            return parse_at(at)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"atはISO 8601の時刻で指定してください: {at!r}") from exc
+
     async def _load_dashboard_context(refresh_interval_s: int) -> dict:
         context = {
             "registry_rows": data_sources.load_registry_status(registry, monitor),
             "registry_source_path": str(registry.source_path) if registry.source_path else "—",
-            "alert_rows": data_sources.load_alert_summary(aggregator),
+            "overview": _live_overview(),
+            "timeline": build_timeline(aggregator.all()),
+            "alert_rows": _alert_rows(),
             "repo_rows": _load_repo_rows(),
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             "refresh_interval_s": refresh_interval_s,
@@ -463,7 +550,29 @@ def create_app(
 
     @app.get("/api/alerts")
     async def api_alerts() -> list[dict]:
-        return data_sources.load_alert_summary(aggregator)
+        return _alert_rows()
+
+    @app.get("/api/overview")
+    async def api_overview(at: Optional[str] = None) -> dict:
+        """ツール一覧・サマリ・直近アラート。atを付けると、その時刻のアラート履歴から状態を再構成する。"""
+        at_dt = _parse_at_or_400(at)
+        return _history_overview(at_dt) if at_dt is not None else _live_overview()
+
+    @app.get("/api/history/timeline")
+    async def api_history_timeline() -> dict:
+        """アラート履歴スライダーの範囲と目盛り(発生・解消の時刻)。"""
+        return build_timeline(aggregator.all())
+
+    @app.get("/fragments/overview")
+    async def fragment_overview(request: Request, at: Optional[str] = None):
+        """概況(左=ツール一覧 / 中央=詳細・オフィス / 右=サマリ)のHTML断片。
+
+        スライダーで過去の時刻を選んだときに、ブラウザがこの断片を取得して差し替える。
+        ライブ表示と同じテンプレート(partials/overview.html)を使うため、見た目の定義は1か所のみ。
+        """
+        at_dt = _parse_at_or_400(at)
+        overview = _history_overview(at_dt) if at_dt is not None else _live_overview()
+        return templates.TemplateResponse(request, "partials/overview.html", {"overview": overview})
 
     @app.post("/api/alerts/{alert_id}/snooze")
     async def api_alert_snooze(alert_id: str, payload: Optional[dict] = Body(default=None)) -> dict:

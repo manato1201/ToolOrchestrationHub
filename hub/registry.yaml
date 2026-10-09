@@ -6,26 +6,45 @@
 # すべて「暫定」として扱う(DESIGN.md 前提・制約 参照)。poll_interval_s / check_params の
 # 具体値も同様に暫定であり、対象ツール側の実際の間隔が判明次第ここだけを更新すればよい。
 # Hub自身の内部アーキテクチャ(Registry/Relay/AlertAggregatorの3層構成)はここでは変更しない。
+#
+# 2026-10 改善(IMPROVEMENT_PLAN_2026-10.md H4 / U3)で次の任意項目を追加した:
+#   isolation   : ツールの実行隔離方式 none / sandbox-bash / container / vm。
+#                 ★全て「暫定の初期値」。根拠(repos.yamlのdocker compose起動、CIランナーでの実行)が
+#                 ある項目だけ none 以外にしてあり、それ以外は「いまホストで直接動かしている」前提の none。
+#                 方針として隔離したいツールがあれば、ここだけを書き換える(Hub本体の変更は不要)。
+#   owner_rules : そのツール固有の制約の短文(下の各コメントにあった「Hubは○○しない」等を項目化)。
+#   symbol/color: ダッシュボード全体で共通に使う丸い記号(1〜2文字)と固定色。色は暗い地に
+#                 文字色(#e9ebdf)を載せて4.5:1以上のコントラストが出る明度で揃えてある。
+#                 状態色(緑/橙/赤)と見分けがつくよう、彩度を抑えた色にしている。
 
 tools:
   # 1. LoreDesktopAndWebSystem — RPC(QLocalSocket)+:8766ブリッジ(RAGアシスタント)
   #    Registryのtransport2種(rpc/http_bridge)のプロトタイプ。Hub自体はRPCチャネルに介入しない。
   - tool_id: lore_desktop_and_web_system
     display_name: "LoreDesktopAndWebSystem"
+    symbol: "Lo"
+    color: "#6d4b40"
     transport: rpc
     endpoint: null
     health_check: rpc_check   # 受動監視のみ。Hubから能動的にQLocalSocketへ接続しない
     category: observed_only
+    isolation: container      # repos.yamlの起動方法が docker compose up(api + web)
+    owner_rules:
+      - "HubはRPCチャネルに介入しない(ハートビートの受動監視のみ)"
     check_params:
       heartbeat_interval_s: 10  # 暫定。Phase4(プロセス分離)側の実測値で更新する
 
   # 2. The-Algorithm-Illustrated — 静的サイト、CI/CDあり(ビルド成功/失敗のみ)
   - tool_id: the_algorithm_illustrated
     display_name: "The-Algorithm-Illustrated"
+    symbol: "Al"
+    color: "#6d6240"
     transport: static_site
     endpoint: null
     health_check: ci_pipeline_check   # CI最終成功runの経過時間のみ見る
     category: monitored
+    isolation: vm             # 監視対象はCI(GitHub-hostedランナー = 使い捨てVM)の実行
+    owner_rules: []
     poll_interval_s: 86400            # 暫定。対象CIの実際のcron/push頻度で更新する
     check_params:
       expected_interval_s: 86400
@@ -35,10 +54,14 @@ tools:
   #    Hub新設のdedup/resolveアラートライフサイクルの直接の前例(AlertAggregator参照)
   - tool_id: research_collector
     display_name: "Research-Collector"
+    symbol: "Rc"
+    color: "#626d40"
     transport: cli_batch
     endpoint: null
     health_check: ci_pipeline_check
     category: monitored
+    isolation: vm             # GitHub Actions cron(使い捨てVM)
+    owner_rules: []
     poll_interval_s: 21600            # cronの実際の間隔(6時間おき)以下に留める
     check_params:
       expected_interval_s: 21600      # Research-Collectorの実cron間隔(6時間おき)
@@ -47,10 +70,15 @@ tools:
   # 4. DevelopmentRAGEnvironment — rag_local_bridge.pyの:8766ブリッジ、未認証/health
   - tool_id: dev_rag_environment
     display_name: "DevelopmentRAGEnvironment"
+    symbol: "Rg"
+    color: "#4b6d40"
     transport: http_bridge
     endpoint: "http://127.0.0.1:8766/health"
     health_check: http_bridge_check
     category: monitored
+    isolation: none           # ホスト上のローカルブリッジ(暫定)
+    owner_rules:
+      - "Hubが叩くのは未認証の/healthのみ(X-API-Keyが要るエンドポイントには触れない)"
     poll_interval_s: 60               # 暫定。相手側の負荷を増やさない範囲で調整する
     check_params:
       timeout_s: 3.0
@@ -59,20 +87,30 @@ tools:
   #    Hubは観察のみ。GPU排他のクリティカルパスに監視トラフィックを一切入れない
   - tool_id: learning_qt
     display_name: "LearningQt(VideoFactory)"
+    symbol: "Qt"
+    color: "#406d4b"
     transport: rpc
     endpoint: null
     health_check: rpc_check
     category: observed_only
+    isolation: none           # GPU排他のジョブ列を直接動かす(暫定)
+    owner_rules:
+      - "Hubは観察のみ"
+      - "GPU排他のクリティカルパスに監視トラフィックを入れない"
     check_params:
       heartbeat_interval_s: 30        # 暫定
 
   # 6. AssetDataInsightSuite — CI定期実行、report_manifest.json、Issue通知
   - tool_id: asset_data_insight_suite
     display_name: "AssetDataInsightSuite"
+    symbol: "As"
+    color: "#406d62"
     transport: cli_batch
     endpoint: null
     health_check: ci_pipeline_check
     category: monitored
+    isolation: vm             # 監視対象はCI定期実行(使い捨てVM)
+    owner_rules: []
     poll_interval_s: 86400            # 暫定。対象CIの実際の定期実行間隔で更新する
     check_params:
       expected_interval_s: 86400
@@ -83,20 +121,30 @@ tools:
   #    監視/管理チャネルのみHubに相乗りさせる。realtimeのhot pathには絶対に入れない
   - tool_id: sound_middleware
     display_name: "SoundMiddleware"
+    symbol: "So"
+    color: "#40626d"
     transport: rpc
     endpoint: null
     health_check: rpc_check
     category: observed_only
+    isolation: none           # realtimeのhot pathなので包まない
+    owner_rules:
+      - "監視/管理チャネルのみHubに相乗りさせる"
+      - "realtimeのhot pathには入れない"
     check_params:
       heartbeat_interval_s: 10        # 暫定。Phase3確定値で更新する
 
   # 8. VisualRegressionQATool — 差し替え可能アラートsink(Phase5)
   - tool_id: visual_regression_qa_tool
     display_name: "VisualRegressionQATool"
+    symbol: "Vq"
+    color: "#404b6d"
     transport: cli_batch
     endpoint: null
     health_check: ci_pipeline_check
     category: monitored
+    isolation: vm             # 監視対象はCI実行(使い捨てVM)
+    owner_rules: []
     poll_interval_s: 86400            # 暫定
     check_params:
       expected_interval_s: 86400
@@ -106,38 +154,77 @@ tools:
   # 9. ColorEncyclopedia — 静的サイト、実行時連携なし。対象外
   - tool_id: color_encyclopedia
     display_name: "ColorEncyclopedia"
+    symbol: "Co"
+    color: "#4b406d"
     transport: static_site
     endpoint: null
     health_check: null
     category: excluded
+    isolation: none           # 静的サイト(暫定)
+    owner_rules: []
 
   # 10. VLMAutoReplayTool — StepLog、:8766ブリッジ利用(DevelopmentRAGEnvironment経由)
   #     Profiling Tool経由で間接的にメトリクス取得する。Hubから直接フックしない
   - tool_id: vlm_auto_replay_tool
     display_name: "VLMAutoReplayTool"
+    symbol: "Vl"
+    color: "#62406d"
     transport: http_bridge
     endpoint: null
     health_check: null
     category: observed_only
+    isolation: none           # 暫定。GUI操作を自動実行するツールなので、隔離するかは要判断
+    owner_rules:
+      - "メトリクスはProfiling Tool経由で間接的に取得する(Hubから直接フックしない)"
 
   # 11. DynamicGIMiddleware — フレーム毎GPUコスト計測対象
   #     Profiling Tool経由で間接的にメトリクス取得する。フレームクリティカルパスには入らない
   - tool_id: dynamic_gi_middleware
     display_name: "DynamicGIMiddleware"
+    symbol: "Gi"
+    color: "#6d4062"
     transport: rpc
     endpoint: null
     health_check: null
     category: observed_only
+    isolation: none           # フレームクリティカルパスなので包まない
+    owner_rules:
+      - "メトリクスはProfiling Tool経由で間接的に取得する(Hubから直接フックしない)"
+      - "フレームクリティカルパスには入らない"
 
   # 12. ProfilingTool — メトリクス/アラート発行契約(Phase4確定済み)
   #     AlertAggregatorの主経路
   - tool_id: profiling_tool
     display_name: "ProfilingTool"
+    symbol: "Pr"
+    color: "#6d404b"
     transport: http_bridge
     endpoint: "http://127.0.0.1:8767/health"
     health_check: http_bridge_check
     category: monitored
+    isolation: none           # Hubのサブ機能として同じリポジトリ内で動く
+    owner_rules: []
     poll_interval_s: 30               # 暫定。対象の実際の発行契約間隔で更新する
     check_params:
       timeout_s: 3.0
       trace_summary_path: "data/profiling_tool/trace_summary.json"
+
+  # --- 構想段階のため台帳には載せていないもの ---
+  # TransferKit(仮) — Houdini ⇔ エンジンの受け渡し検査(IMPROVEMENT_PLAN H5)。
+  # まだ実装も health の契約も存在しない。いま載せると死活監視が常時 down になり、誤アラートと
+  # Slack/トースト通知の元になるため載せていない。実装後に、他の http_bridge と同じ要領で追加する
+  # (Python コア + HTTP、`X-API-Key` の規約に合わせる。health は未認証の /health を使う)。
+  #
+  # - tool_id: transfer_kit
+  #   display_name: "TransferKit"
+  #   symbol: "Tk"
+  #   color: "#6d5a40"
+  #   transport: http_bridge
+  #   endpoint: "http://127.0.0.1:<port>/health"   # 実装時に確定する
+  #   health_check: http_bridge_check
+  #   category: monitored
+  #   isolation: none
+  #   owner_rules: []
+  #   poll_interval_s: 60
+  #   check_params:
+  #     timeout_s: 3.0

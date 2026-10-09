@@ -187,3 +187,31 @@ async def test_observed_only_rpc_tool_is_unknown_until_first_heartbeat_recorded(
     result = await monitor.check_once(entry)
     assert result is not None
     assert result.is_up is True
+
+
+def test_last_signal_age_uses_the_most_recent_of_heartbeat_ci_and_up_result():
+    """ダッシュボードの「最終応答 3分前」表示用。受信した信号のうち最も新しいものからの経過秒を返す。"""
+    registry = ToolRegistry.load()
+    monitor = LivenessMonitor(registry)
+
+    assert monitor.last_signal_age_s("sound_middleware", now=1000.0) is None  # 一度も信号が無い
+
+    monitor.record_heartbeat("sound_middleware", at=900.0)
+    assert monitor.last_signal_age_s("sound_middleware", now=1000.0) == 100.0
+
+    monitor.record_ci_success("sound_middleware", at=950.0)  # より新しい信号があればそちらを使う
+    assert monitor.last_signal_age_s("sound_middleware", now=1000.0) == 50.0
+
+
+@pytest.mark.asyncio
+async def test_last_signal_age_is_updated_when_a_check_finds_the_tool_up():
+    registry = ToolRegistry.load()
+    monitor = LivenessMonitor(registry)
+    entry = registry.get("sound_middleware")  # observed_only / rpc_check
+
+    monitor.record_heartbeat("sound_middleware", at=time.monotonic())
+    result = await monitor.check_once(entry)
+
+    assert result is not None and result.is_up
+    age = monitor.last_signal_age_s("sound_middleware")
+    assert age is not None and age < 5.0

@@ -9,10 +9,12 @@
 - `hub/registry.py` / `hub/registry.yaml` — Phase1: 12ツールの台帳(`ToolEntry`/`ToolRegistry`)。ホットリロード対応(後述)
 - `hub/health/` — Phase2: `http_bridge_check` / `rpc_check` / `ci_pipeline_check` とそれらを束ねる `LivenessMonitor`
 - `hub/alert_aggregator.py` — Phase3: `AlertRecord`の正規化・dedup(`upsert_alert`)・解消(`resolve_alert`)
-- `hub/alert_store.py` — アラート履歴のSQLite永続化(`.hub_state/alerts.sqlite3`、`AlertAggregator`のオプション)
-- `hub/notify.py` — 新規/解消アラートのローカル通知チャネル(v1: Windowsトースト通知のみ)
+- `hub/alert_store.py` — アラート履歴のSQLite永続化(`.hub_state/alerts.sqlite3`、`AlertAggregator`のオプション。1行 = 1つの発生→解消)
+- `hub/notify.py` — 新規/解消アラートの通知チャネル(Windowsトースト、`HUB_SLACK_WEBHOOK_URL`を設定するとSlackも)
+- `hub/tool_state.py` / `hub/overview.py` / `hub/alert_history.py` — ツールの状態判定・概況の組み立て・履歴スライダーの下ごしらえ(純関数。後述v2.5)
+- `hub/alert_priority.py` / `hub/runbooks.py` / `hub/runbooks.yaml` / `hub/alert_view.py` — アラートの見る順番の補助と運用手順書(表示専用。後述v2.5)
 - `hub/repo_sync.py` / `hub/repos.yaml` — 外部13リポジトリのgit差分検知・同期(後述)
-- `hub/dashboard/` — Phase4: FastAPI製の読み取り専用ダッシュボード(Registry状態・Alert一覧・各種アーティファクト・Profiling・Repositoriesをミラー表示)
+- `hub/dashboard/` — Phase4: FastAPI製の読み取り専用ダッシュボード(ツール一覧と死活監視・アラート・リポジトリ・プロファイリング・各種アーティファクトをミラー表示)。画面は `templates/`(`partials/`に概況と共通部品)、`static/style.css`、`static/app.js`
 - `profiling_tool/` — ToolOrchestrationHubの**サブ機能**として統合された計測基盤(後述)
 
 ## セットアップ・実行
@@ -215,3 +217,64 @@ uv run hub
   比較ロジックは`profiling_tool/aggregate.py`の純関数(`diff_span_summary`/
   `diff_counter_summary`)として実装し、Hub側では再計算しない。過去runが無いtargetは
   「比較なし」とそのまま表示する。
+
+## v2.5: 2026-10 UI/運用の改善(IMPROVEMENT_DESIGN / IMPROVEMENT_PLAN)
+
+[IMPROVEMENT_DESIGN_2026-10.md](IMPROVEMENT_DESIGN_2026-10.md)(UI設計)と[IMPROVEMENT_PLAN_2026-10.md](IMPROVEMENT_PLAN_2026-10.md)(H1〜H8 / U1〜U5)に沿った改修。
+骨格(配色・書体)は変えず、「決めていないこと」を無くす方向で直した。決めごとの一覧と、オフィスビューの配色・状態表現は
+[ToolOrchestrationHub_UI_DESIGN.md](ToolOrchestrationHub_UI_DESIGN.md) の末尾に追記してある。
+
+### 画面(U1〜U5 / H1 / H7 / 設計書 Phase 0〜4)
+
+- **左=ツール一覧、中央=詳細、右=サマリ**の3カラムに再構成。一覧は「記号 + 名前 + 副題 + 状態 + 応答時間」、検索と並べ替え(名前順 / 状態順 / 応答が遅い順)、
+  「警告のみ」の絞り込み、「一覧 / オフィス」の切り替え。選択・並べ替え・検索語・テーマは自動更新をまたいで保持される。
+- **状態は色だけにしない**: 正常 ✓ / 警告 ▲ / 停止 ■ に加え、「未確認 ○」(信号がまだ無い)と「対象外 –」を足した(偽の「正常」を出さないため)。絵文字は廃止。
+- **ツールの丸い記号と固定色**を12ツール全てに割り当て(`registry.yaml` の `symbol` / `color`)、一覧・オフィス・詳細・アラートで同じ表現を使う。
+- **アラート履歴スライダー**: 過去の時刻を選ぶと、その時刻に未解消だったアラートからツールの状態を再現する(再生・「いま」で戻る)。
+  再現できるのは**アラートの発生・解消だけ**(死活監視の結果そのものは履歴に残らない)。Hubが止まっていた期間は反映されず、画面にもその旨を常に出す。
+- **オフィス表示**: 12ツールを机に置いたSVG。画面の色と人物の動き(タイプ / 手を振る / うなだれる)で状態を表し、文字でも必ず併記する。
+- **アラート一覧**: 名前 + 灰色の副題(発生元・発生回数・見る順番の目安)の2段。未解消が上、解消済みは灰色で下。
+- **遊びごころは3か所だけ**: 空状態(アラートなし)、解消の瞬間の小さな紙吹雪、ブラウザでの404ページ。全て `prefers-reduced-motion` で止まる。
+- ダーク(既定)/ライトのテーマ切替、狭い画面での1列化。見出し・列名は日本語に統一。同期(Sync)は確認ダイアログを挟み、操作は危険度の低い順に並べて離した。
+
+### 台帳・運用(H4 / H6 / H8 / H2)
+
+- **`isolation` / `owner_rules`(H4)**: `registry.yaml` に隔離方式(none / sandbox-bash / container / vm)とツール固有の制約を追加。
+  **隔離方式は全て暫定の初期値**: 根拠(repos.yamlの docker compose 起動、CIランナーでの実行)がある項目だけ none 以外で、残りは「いまホストで直接動かしている」前提の none。
+  方針として隔離したいツール(例: GUI操作を自動実行する VLMAutoReplayTool)は、`registry.yaml` を書き換えるだけで反映される。
+- **運用手順書(H6)**: `hub/runbooks.yaml` に、アラート種別(死活監視 / プロファイリング / 視覚回帰 / アセット診断 / その他)ごとの「やること / やらないこと / 成果物」を固定。
+  アラート行と詳細カードの「対応手順」から開く。初版の文面なので、運用に合わせて書き換える。ファイルが壊れていてもHubは手順なしで起動する。
+- **導入前チェック(H8)**: [docs/PLUGIN_PRECHECK.md](docs/PLUGIN_PRECHECK.md)(出典 / SKILL.md / 権限の3点、1ページ)。
+- **見る順番の補助(H2)**: 緊急 / 通常 / 情報不足のバッジと並び順。ルールベース(重大度・再発回数・停止かどうか・間接指標かどうか)で、
+  数値は較正された確率ではなく「目安」と表示する。**通知・dedup・resolveには一切つなげていない**(補助が壊れても通知は従来どおり出る)。
+  LLM等へ差し替える場合は `AlertPriorityClassifier` を満たす実装を `create_app(classifier=...)` に渡す。
+
+### 見つけて直した不具合
+
+- **再発したアラートの履歴が再起動で潰れていた**: 保存を `alert_id` だけの主キーにしていたため、解消後に同じアラートが再発すると過去の解消済み行が上書きされ、
+  開始時刻も古いまま残った。1行 = 1ライフサイクル(`alert_id` + `first_seen_at`)にし、旧DBは初回起動時に自動で移行する(データは保持)。
+- **30日経過した解消済みアラートのpruneで、同じ `alert_id` の「いま未解消の再発」まで消えていた**: レコード単位で削除するようにした。
+- リポジトリ節の注意書き(`.data-warning`)のCSSが存在せず、スタイル無しで表示されていた。
+
+### 実装していないもの(理由)
+
+| ID | 内容 | 見送った理由 |
+|---|---|---|
+| H3 | 13リポジトリの構造図(CodeBoarding)を差分検知時に再生成 | CodeBoardingは未導入で、動かして `analysis.json` の形を確かめられない。さらにLLMを使うため、コスト上限とプロバイダの判断が先に要る(計画書も「上限を決める」としている)。自動実行はせず、決めてから着手する |
+| H5 | 台帳に TransferKit を追加 | TransferKit は「(仮)構想」でまだ存在せず、healthの契約も無い。いま載せると死活監視が常時 down になり、誤アラートとSlack/トースト通知の元になる(台帳12件のテストも崩れる)。`registry.yaml` の末尾に、実装後に足すための雛形をコメントで残した |
+| H2 の確率 | 「ラベル + 確率」 | ルールベースのため較正された確率を出せない。目安のscoreと理由を出す |
+| H7 の波紋 | 新規アラート時のタップ波紋 | 設計書 §4.2「通知の演出は解消時のみ」と原則 P8 に合わせて、解消時の紙吹雪だけにした |
+
+### 設計書の検証チェックリストとの対応
+
+- [x] スライダーで過去の時刻に動かしたとき、状態が当時のアラート履歴と一致する(`tests/test_overview.py` / `tests/test_dashboard_overview.py`。再現の限界は上記のとおり)
+- [x] 色を消しても状態が分かる(全状態に文字ラベルと記号を定義。テストで検証)
+- [x] ツールが増えても一覧が崩れない(20件で検証。一覧は中でスクロールし、オフィスはグリッドで自動配置)
+- [x] 破壊的な操作(同期)に確認が入る(確認ダイアログを経てから初めてAPIを叩く)
+- [x] 既存の通知(Windowsトースト / Slack)に影響がない(通知経路は変更なし。補助や手順書が壊れても通知されることをテストで確認)
+- [x] 台帳に隔離方式が全ツール分入っている(値は暫定)
+- [x] オフィスビューの状態が、死活監視の結果と一致する(同じ状態判定を一覧・オフィス・サマリで共有)
+- [x] 分類補助を外しても、アラートが従来どおり通知される
+- [ ] 構造図の再生成コストが上限を超えない — H3を見送ったため対象外
+
+未検証: 実機のブラウザは Chrome のみ。Firefox / Safari / スマホ実機は未確認(狭い画面のレイアウトはCSSの設計と幅の強制縮小で確認)。

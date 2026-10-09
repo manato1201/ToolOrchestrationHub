@@ -1,0 +1,68 @@
+{#- 画面全体で共通に使う部品(決めごと表 P1)。記号・状態・重大度の見た目は、ここ以外で組み立てない。 -#}
+
+{#- ツールの丸い記号(1〜2文字 + 固定色)。tool-listでもオフィスでもアラートでも同じ表現を使う -#}
+{% macro symbol(sym, color, size="") -%}
+<span class="symbol{% if size %} symbol-{{ size }}{% endif %}" style="--symbol-color: {{ color }}" aria-hidden="true">{{ sym }}</span>
+{%- endmacro %}
+
+{#- 状態。色だけに頼らず、記号(✓▲■○–)と日本語の文字を必ず併記する -#}
+{% macro state_pill(state, label, glyph) -%}
+<span class="state-pill state-{{ state }}"><span class="state-glyph" aria-hidden="true">{{ glyph }}</span>{{ label }}</span>
+{%- endmacro %}
+
+{#- アラートの重大度。状態と同じ記号体系(■=重大 ▲=警告 ○=情報) -#}
+{% macro severity_pill(severity, label, glyph) -%}
+<span class="sev sev-{{ severity }}"><span class="sev-glyph" aria-hidden="true">{{ glyph }}</span>{{ label }}</span>
+{%- endmacro %}
+
+{#- 見る順番の目安(補助)。通知の判断には使っていない。理由はツールチップで読める -#}
+{% macro priority_badge(a) -%}
+{% if a.priority_label -%}
+<span class="prio prio-{{ a.priority }}" title="見る順番の目安(通知とは無関係): {{ a.priority_reasons|join(' / ') }}">{{ a.priority_label }}</span>
+{%- endif %}
+{%- endmacro %}
+
+{#- 運用手順書(やること / やらないこと / 成果物)。開閉の矢印は ▾(開くと▴) -#}
+{% macro runbook_details(rb) -%}
+{% if rb -%}
+<details class="runbook">
+  <summary>対応手順<span class="chev" aria-hidden="true"></span></summary>
+  <div class="runbook-body">
+    <p class="runbook-title">{{ rb.title }}</p>
+    <div class="runbook-cols">
+      <div><h5>やること</h5><ul>{% for line in rb.do %}<li>{{ line }}</li>{% endfor %}</ul></div>
+      <div><h5>やらないこと</h5><ul>{% for line in rb.dont %}<li>{{ line }}</li>{% endfor %}</ul></div>
+      <div><h5>成果物</h5><ul>{% for line in rb.deliverable %}<li>{{ line }}</li>{% endfor %}</ul></div>
+    </div>
+  </div>
+</details>
+{%- endif %}
+{%- endmacro %}
+
+{#- オフィスビューの1席。状態でキャラの動きと画面の色を切り替える。ツール数が増えても1席が独立した小さなSVGなので、
+    並べ方はCSSのグリッドが決める(自動配置)。SVGは装飾で、状態は必ず下の文字でも出す。 -#}
+{% macro office_desk(state, glyph) -%}
+<svg class="office-svg office-{{ state }}" viewBox="0 0 120 96" aria-hidden="true" focusable="false">
+  <ellipse class="office-shadow" cx="60" cy="86" rx="46" ry="7"/>
+  {% if state != "excluded" -%}
+  <g class="person">
+    <rect class="arm arm-left" x="47" y="29" width="5" height="13" rx="2.5"/>
+    <rect class="arm arm-right" x="68" y="29" width="5" height="13" rx="2.5"/>
+    <rect class="body" x="52" y="26" width="16" height="15" rx="5"/>
+    <circle class="head" cx="60" cy="17" r="7.5"/>
+    {% if state == "unknown" %}<text class="head-mark" x="60" y="21" text-anchor="middle">?</text>{% endif %}
+  </g>
+  {%- else -%}
+  <rect class="chair" x="53" y="27" width="14" height="16" rx="4"/>
+  {%- endif %}
+  <polygon class="desk-top" points="60,44 102,62 60,80 18,62"/>
+  <polygon class="desk-left" points="18,62 60,80 60,88 18,70"/>
+  <polygon class="desk-right" points="60,80 102,62 102,70 60,88"/>
+  <g class="monitor">
+    <rect class="monitor-body" x="45" y="37" width="30" height="20" rx="2.5"/>
+    <rect class="monitor-screen" x="47.5" y="39.5" width="25" height="15" rx="1.5"/>
+    <text class="monitor-glyph" x="60" y="51" text-anchor="middle">{{ glyph }}</text>
+    <rect class="monitor-stand" x="56.5" y="57" width="7" height="3" rx="1"/>
+  </g>
+</svg>
+{%- endmacro %}

@@ -89,7 +89,7 @@ def test_manual_reload_endpoint_reflects_file_changes(tmp_path):
 
 
 def test_dashboard_renders_registry_search_bar_when_tools_exist(tmp_path):
-    """使いやすさ改善: Registry & Livenessテーブルの横断検索。"""
+    """使いやすさ改善: ツール一覧(左パネル)の検索。U1で台帳の表は左のツール一覧に置き換わった。"""
     registry_path = tmp_path / "registry.yaml"
     registry_path.write_text(_REGISTRY_V2, encoding="utf-8")
 
@@ -98,7 +98,7 @@ def test_dashboard_renders_registry_search_bar_when_tools_exist(tmp_path):
     )
     with TestClient(app) as client:
         res = client.get("/")
-        assert '<input id="registry-filter-search"' in res.text
+        assert 'id="tool-search"' in res.text
         assert 'data-search="a tool_a excluded static_site"' in res.text
         assert 'data-search="b tool_b excluded static_site"' in res.text
 
@@ -409,7 +409,8 @@ def test_dashboard_renders_snooze_button_and_switches_to_unsnooze(tmp_path):
 
         page = client.get("/")
         assert "Unsnooze" in page.text
-        assert "🔕" in page.text
+        assert "スヌーズ中" in page.text
+        assert "🔕" not in page.text  # 絵文字は使わない(決めごと表 P1)
 
 
 def test_alert_unsnooze_endpoint_clears_snoozed_until(tmp_path):
@@ -556,7 +557,7 @@ def test_profiling_section_shows_diff_against_previous_run_for_same_target(tmp_p
         res = client.get("/")
         assert "run_older" in res.text
         assert "前回run(run_older" in res.text
-        assert "vs前回 (p50)" in res.text
+        assert "前回比 (p50)" in res.text
         assert "+100.0 ms" in res.text  # 100ms -> 200msへの増加
 
 
@@ -580,7 +581,7 @@ def test_profiling_section_shows_no_comparison_note_for_a_single_run(tmp_path):
     with TestClient(app) as client:
         res = client.get("/")
         assert "過去runがまだ無いため比較なし" in res.text
-        assert "vs前回 (p50)" not in res.text
+        assert "前回比 (p50)" not in res.text
 
 
 def test_profiling_section_empty_state_when_no_traces(tmp_path):
