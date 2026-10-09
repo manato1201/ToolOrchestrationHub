@@ -143,6 +143,88 @@ def test_prune_resolved_does_not_remove_open_alerts():
     assert alert in aggregator.all()
 
 
+def test_prune_keeps_open_recurrence_of_the_same_alert_id():
+    """回帰テスト: 30日以上前に解消した過去分をpruneしても、同じalert_idの
+    「いま未解消の再発」は消さない(以前はalert_idで消していたため現在のアラートが消えた)。
+    """
+    aggregator = AlertAggregator()
+    now = datetime.now(timezone.utc)
+    old = AlertRecord(
+        alert_id="x:1",
+        source_tool_id="profiling_tool",
+        severity=Severity.CRITICAL,
+        message="old",
+        first_seen_at=now - timedelta(days=40),
+        resolved_at=now - timedelta(days=35),
+    )
+    recurrence = AlertRecord(
+        alert_id="x:1",
+        source_tool_id="profiling_tool",
+        severity=Severity.CRITICAL,
+        message="current recurrence",
+        first_seen_at=now - timedelta(hours=1),
+    )
+    aggregator.ingest(old)
+    aggregator.ingest(recurrence)
+
+    pruned = aggregator.prune_resolved(retention=timedelta(days=30))
+
+    assert [a.message for a in pruned] == ["old"]
+    assert [a.message for a in aggregator.open_alerts()] == ["current recurrence"]
+
+
+def test_flapping_alert_history_survives_restart(tmp_path):
+    """回帰テスト: resolve後に再発したアラートの履歴(解消済み+現在open)が再起動後も両方残る。"""
+    db_path = tmp_path / "hub_state.sqlite3"
+    aggregator = AlertAggregator(store=SqliteAlertStore(db_path))
+    first = aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+    time.sleep(0.01)
+    aggregator.resolve_by_id(first.alert_id)
+    time.sleep(0.01)
+    recurrence = aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+
+    restarted = AlertAggregator(store=SqliteAlertStore(db_path))
+
+    records = restarted.all()
+    assert len(records) == 2
+    assert [r.is_open for r in records] == [False, True]
+    assert records[1].first_seen_at == recurrence.first_seen_at  # 再発の開始時刻が古い値に戻らない
+
+
+def test_occurrence_count_increments_on_recurrence_but_not_on_dedup():
+    aggregator = AlertAggregator()
+    first = aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+    # ポーリングで同じ異常が繰り返し検知されるだけ(dedup)なら増えない
+    aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+    aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+    assert first.occurrence_count == 1
+
+    aggregator.resolve_by_id(first.alert_id)
+    second = aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+    assert second.occurrence_count == 2
+
+    aggregator.resolve_by_id(second.alert_id)
+    third = aggregator.ingest(normalize_from_health_check("dev_rag_environment", HealthResult(is_up=False)))
+    assert third.occurrence_count == 3
+
+
+def test_is_open_at_uses_half_open_interval():
+    start = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 1, 13, 0, tzinfo=timezone.utc)
+    alert = AlertRecord("x:1", "profiling_tool", Severity.WARN, "m", first_seen_at=start, resolved_at=end)
+
+    assert alert.is_open_at(start - timedelta(seconds=1)) is False
+    assert alert.is_open_at(start) is True  # 開始ちょうどはopen
+    assert alert.is_open_at(end - timedelta(seconds=1)) is True
+    assert alert.is_open_at(end) is False  # 解消ちょうどはresolved
+
+
+def test_is_open_at_for_still_open_alert_is_true_forever_after_start():
+    start = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    alert = AlertRecord("x:1", "profiling_tool", Severity.WARN, "m", first_seen_at=start)
+    assert alert.is_open_at(start + timedelta(days=365)) is True
+
+
 def test_same_failure_from_two_sources_merges_into_one_record():
     """Profiling Toolからのアラートとヘルスチェック由来のアラートが同一障害を指す場合、
     alert_idが一致し1件のAlertRecordに集約されることを確認する

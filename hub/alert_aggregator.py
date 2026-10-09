@@ -27,16 +27,30 @@ class Severity(str, Enum):
 
 @dataclass
 class AlertRecord:
+    """1つのopen→resolveライフサイクル。同じalert_idが再発すると別のAlertRecordになる。"""
+
     alert_id: str  # sourceToolId + 正規化した障害シグネチャのハッシュ。dedupキー
     source_tool_id: str
     severity: Severity
     message: str
     first_seen_at: datetime
     resolved_at: Optional[datetime] = None  # Noneの間はopen。resolve検知でタイムスタンプを刻む
+    # 同じalert_idがこれまでに何回openしたか(このレコードを含む)。再発(resolve後の再open)で増える。
+    # ポーリングで同じ異常が繰り返し検知されるだけの場合(dedup)は増えない。
+    occurrence_count: int = 1
 
     @property
     def is_open(self) -> bool:
         return self.resolved_at is None
+
+    def is_open_at(self, at: datetime) -> bool:
+        """時刻atの時点でこのアラートがopenだったか(アラート履歴の再現用)。
+
+        開始時刻ちょうどはopen扱い、解消時刻ちょうどはresolved扱いにする(半開区間 [first_seen, resolved))。
+        """
+        if at < self.first_seen_at:
+            return False
+        return self.resolved_at is None or at < self.resolved_at
 
 
 class AlertStore(Protocol):
@@ -51,7 +65,7 @@ class AlertStore(Protocol):
 
     def load_all(self) -> list[AlertRecord]: ...
 
-    def delete(self, alert_id: str) -> None: ...
+    def delete(self, alert: AlertRecord) -> None: ...
 
 
 def _make_alert_id(source_tool_id: str, signature: str) -> str:
@@ -202,6 +216,9 @@ class AlertAggregator:
         """新規アラートをdedupしつつ取り込む。既存openレコードがあればそれを返す。"""
         upserted = upsert_alert(new_alert, self._alerts)
         if upserted is new_alert:
+            # 同じalert_idの過去のライフサイクル(解消済み)があれば再発。発生回数を引き継いで数える。
+            prior_lifecycles = sum(1 for a in self._alerts if a.alert_id == new_alert.alert_id)
+            new_alert.occurrence_count = max(new_alert.occurrence_count, prior_lifecycles + 1)
             self._alerts.append(new_alert)
             if self._store is not None:
                 self._store.save(new_alert)
@@ -230,11 +247,13 @@ class AlertAggregator:
         to_prune = [a for a in self._alerts if a.resolved_at is not None and a.resolved_at < cutoff]
         if not to_prune:
             return []
-        pruned_ids = {a.alert_id for a in to_prune}
-        self._alerts = [a for a in self._alerts if a.alert_id not in pruned_ids]
+        # alert_idではなくレコード単位で消す。alert_idで消すと、同じalert_idの「いま未解消の再発」まで
+        # 巻き込んで消えてしまう(30日以上前に解消した過去分のpruneで現在のアラートが消える不具合があった)。
+        pruned = {id(a) for a in to_prune}
+        self._alerts = [a for a in self._alerts if id(a) not in pruned]
         if self._store is not None:
             for alert in to_prune:
-                self._store.delete(alert.alert_id)
+                self._store.delete(alert)
         return to_prune
 
     def open_alerts(self) -> list[AlertRecord]:
