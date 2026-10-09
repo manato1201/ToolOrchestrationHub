@@ -1,0 +1,161 @@
+{#- 概況: 左=ツール一覧 / 中央=詳細(+オフィス) / 右=サマリ。ライブ表示と、アラート履歴スライダーで再現した
+    過去の時刻の表示の両方が、このテンプレート1つで描かれる(/ と /fragments/overview)。 -#}
+{% from "partials/_macros.html" import symbol, state_pill, severity_pill, priority_badge, runbook_details, office_desk %}
+{% set s = overview.summary %}
+<div class="overview-card" id="overview-card" data-mode="{{ overview.mode }}" data-default-tool="{{ overview.default_tool_id or '' }}" data-open-alert-keys="{{ overview.open_alert_keys|tojson|forceescape }}">
+  {% if overview.mode == "history" %}
+  <div class="history-banner" role="status">
+    <strong>過去の再現 {{ overview.at_local_text }}</strong>
+    アラート履歴からの再現です。死活監視の結果そのものは残っていないため、未解消のアラートが無いツールは「正常」と表示します。Hubが止まっていた期間は反映されません。
+  </div>
+  {% endif %}
+
+  <header class="overview-head">
+    <div class="overview-heading">
+      <h2>ツール一覧と死活監視</h2>
+      <p class="overview-headline" aria-label="状態の内訳">
+        <span>Hub</span><span class="dot-sep" aria-hidden="true">·</span>
+        <span class="num">{{ s.total }}</span>ツール
+        {% for h in s.headline %}<span class="dot-sep" aria-hidden="true">·</span><span class="headline-item state-{{ h.state }}">{{ h.label }} <span class="num">{{ h.count }}</span></span>{% endfor %}
+      </p>
+    </div>
+    <div class="overview-controls">
+      <div class="chip-group" role="group" aria-label="表示する状態">
+        <button type="button" class="chip" data-filter="all">すべて</button>
+        <button type="button" class="chip" data-filter="attention">警告のみ</button>
+      </div>
+      <div class="chip-group chip-group-toggle" role="group" aria-label="表示の切り替え">
+        <button type="button" class="chip" data-view="list">一覧</button>
+        <button type="button" class="chip" data-view="office">オフィス</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="overview-body">
+    <aside class="tool-list-panel" aria-label="ツール一覧">
+      <div class="tool-list-controls">
+        <input type="search" id="tool-search" class="tool-search" placeholder="ツール名・IDで検索" aria-label="ツールを検索">
+        <div class="chip-group" role="group" aria-label="並べ替え">
+          <button type="button" class="chip" data-sort="name">名前順</button>
+          <button type="button" class="chip" data-sort="state">状態順</button>
+          <button type="button" class="chip" data-sort="latency">応答が遅い順</button>
+        </div>
+        <span id="tool-count" class="source-meta" aria-live="polite"></span>
+      </div>
+      <ul class="tool-list" id="tool-list">
+        {% for t in overview.tools %}
+        <li>
+          <button type="button" class="tool-row" data-tool-id="{{ t.tool_id }}" data-state="{{ t.state }}" data-state-rank="{{ t.state_rank }}" data-name="{{ t.display_name|lower }}" data-latency="{{ t.latency_ms if t.latency_ms is not none else -1 }}" data-search="{{ t.search }}">
+            {{ symbol(t.symbol, t.color) }}
+            <span class="tool-row-name">{{ t.display_name }}</span>
+            <span class="tool-row-state">{{ state_pill(t.state, t.state_label, t.state_glyph) }}</span>
+            <span class="tool-row-sub">{{ t.category_label }} · {{ t.transport }}</span>
+            <span class="tool-row-metric num">{{ t.latency_text or t.last_signal_text or "—" }}</span>
+          </button>
+        </li>
+        {% endfor %}
+      </ul>
+      <p id="tool-list-empty" class="empty" hidden>条件に一致するツールはありません。</p>
+    </aside>
+
+    <section class="center-panel" aria-label="ツールの詳細">
+      <div class="office" id="office" hidden>
+        <ul class="office-grid" id="office-grid">
+          {% for t in overview.tools %}
+          <li>
+            <button type="button" class="office-tile" data-tool-id="{{ t.tool_id }}" data-state="{{ t.state }}" data-state-rank="{{ t.state_rank }}" data-name="{{ t.display_name|lower }}" data-latency="{{ t.latency_ms if t.latency_ms is not none else -1 }}" data-search="{{ t.search }}" aria-label="{{ t.display_name }}: {{ t.state_label }}">
+              {{ office_desk(t.state, t.state_glyph) }}
+              <span class="office-tile-name">{{ symbol(t.symbol, t.color, "sm") }}<span>{{ t.display_name }}</span></span>
+              <span class="office-tile-state">{{ state_pill(t.state, t.state_label, t.state_glyph) }}</span>
+            </button>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="office-note source-meta">オフィス表示は状態を動きで見せる補助ビューです。正確な値は一覧と詳細で確認してください。</p>
+      </div>
+
+      <div class="tool-details" id="tool-details">
+        {% for t in overview.tools %}
+        <article class="tool-detail" data-tool-id="{{ t.tool_id }}" hidden>
+          <header class="tool-detail-head">
+            {{ symbol(t.symbol, t.color, "lg") }}
+            <div class="tool-detail-title">
+              <h3>{{ t.display_name }}</h3>
+              <p class="source-meta">{{ t.tool_id }}</p>
+            </div>
+            {{ state_pill(t.state, t.state_label, t.state_glyph) }}
+          </header>
+
+          <dl class="tool-facts">
+            <div><dt>応答時間</dt><dd class="num">{{ t.latency_text or "—" }}</dd></div>
+            <div><dt>最終応答</dt><dd>{{ t.last_signal_ago or "—" }}</dd></div>
+            <div><dt>監視方式</dt><dd>{{ t.category_label }}</dd></div>
+            <div><dt>通信方式</dt><dd>{{ t.transport }}</dd></div>
+            <div><dt>死活監視</dt><dd>{{ t.health_check or "—" }}</dd></div>
+            <div><dt>接続先</dt><dd class="fact-wrap">{{ t.endpoint or "—" }}</dd></div>
+            <div><dt>実行の隔離</dt><dd>{{ t.isolation_label }}</dd></div>
+          </dl>
+
+          {% if t.owner_rules %}
+          <div class="tool-rules">
+            <h4>守ること</h4>
+            <ul>{% for rule in t.owner_rules %}<li>{{ rule }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+
+          <div class="tool-alerts">
+            <h4>未解消のアラート</h4>
+            {% if t.alerts %}
+            <ul class="tool-alert-list">
+              {% for a in t.alerts %}
+              <li class="tool-alert">
+                <div class="tool-alert-head">
+                  {{ severity_pill(a.severity, a.severity_label, a.severity_glyph) }}
+                  <span class="tool-alert-message">{{ a.message }}</span>
+                </div>
+                <p class="alert-sub"><span>発生 <span class="num">{{ a.occurrence_count }}</span>回</span>{% if a.priority_label %}<span class="dot-sep" aria-hidden="true">·</span>{{ priority_badge(a) }}{% endif %}</p>
+                {{ runbook_details(a.runbook) }}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty">未解消のアラートはありません。</p>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+        {% if not overview.tools %}<p class="empty">台帳にツールがありません。</p>{% endif %}
+      </div>
+    </section>
+
+    <aside class="summary-panel" aria-label="サマリ">
+      <h3>サマリ</h3>
+      <p class="summary-total"><span class="num summary-total-number">{{ s.total }}</span><span class="summary-total-unit">ツール</span></p>
+      <div class="stack-bar" role="img" aria-label="状態別の内訳: {% for seg in s.segments %}{{ seg.label }} {{ seg.count }}{% if not loop.last %}、{% endif %}{% endfor %}">
+        {% for seg in s.segments %}<span class="stack-seg state-{{ seg.state }}" style="flex-grow: {{ seg.count }}"></span>{% endfor %}
+      </div>
+      <ul class="stack-legend">
+        {% for seg in s.segments %}
+        <li><span class="state-pill state-{{ seg.state }}"><span class="state-glyph" aria-hidden="true">{{ seg.glyph }}</span>{{ seg.label }}</span><span class="num">{{ seg.count }}</span></li>
+        {% endfor %}
+      </ul>
+
+      <h4>直近のアラート</h4>
+      {% if overview.recent_alerts %}
+      <ul class="recent-alerts">
+        {% for a in overview.recent_alerts %}
+        <li class="recent-alert{% if a.status == 'resolved' %} is-resolved{% endif %}">
+          {{ symbol(a.symbol, a.color, "sm") }}
+          <div class="recent-alert-main">
+            <span class="recent-alert-message">{{ a.message }}</span>
+            <span class="alert-sub">{{ severity_pill(a.severity, a.severity_label, a.severity_glyph) }}<span>{% if a.status == 'resolved' %}解消済{% else %}未解消{% endif %}</span></span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">直近のアラートはありません。</p>
+      {% endif %}
+    </aside>
+  </div>
+</div>

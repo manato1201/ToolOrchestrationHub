@@ -7,6 +7,7 @@ v1は静的registry.yamlのみを読み込む。動的自己登録は将来課�
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -34,8 +35,24 @@ class ToolCategory(str, Enum):
     EXCLUDED = "excluded"  # Registryには載せるが監視対象外
 
 
+class IsolationKind(str, Enum):
+    """ツール実行の隔離方式(IMPROVEMENT_PLAN_2026-10 H4)。事故の被害範囲を限定するための方針。
+
+    Hub自身はツールを起動・隔離しない(監視のみ)。ここは「そのツールをどの方式で動かす方針か」を
+    台帳に残すための項目で、値の選び方は「何が分離されるか / Dockerの要否 / 手間」の3軸で決める。
+    """
+
+    NONE = "none"  # 隔離なし(ホスト上でそのまま動かす)
+    SANDBOX_BASH = "sandbox-bash"  # OSレベルのサンドボックス(ファイル/ネットワーク制限)
+    CONTAINER = "container"  # コンテナ(Docker等)
+    VM = "vm"  # 仮想マシン(使い捨てCIランナーを含む)
+
+
 class RegistryError(Exception):
     """registry.yamlのパース/スキーマ検証に失敗した場合に送出する。"""
+
+
+_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 @dataclass(frozen=True)
@@ -51,6 +68,11 @@ class ToolEntry:
     # registry.yaml側に静的設定として持たせる拡張フィールド。
     poll_interval_s: Optional[float] = None
     check_params: dict[str, Any] = field(default_factory=dict)
+    # 2026-10 改善(IMPROVEMENT_PLAN H4 / UI U3)で追加した任意フィールド。いずれも未指定でも動く。
+    isolation: Optional[IsolationKind] = None  # 隔離方式。未指定はダッシュボードで「未設定」と表示する
+    owner_rules: tuple[str, ...] = ()  # そのツール固有の「Hubが守る/運用側が守る制約」の短文
+    symbol: Optional[str] = None  # ダッシュボード共通の丸い記号(1〜2文字)。未指定は名前から自動生成
+    color: Optional[str] = None  # 記号の固定色(#rrggbb)。未指定はtool_idから自動生成
 
     @classmethod
     def from_dict(cls, raw: dict) -> "ToolEntry":
@@ -66,8 +88,32 @@ class ToolEntry:
             category = ToolCategory(raw["category"])
         except ValueError as exc:
             raise RegistryError(f"未知のcategory種別です: {raw['category']!r}") from exc
+
+        tool_id = raw["tool_id"]
+        isolation = None
+        if raw.get("isolation") is not None:
+            try:
+                isolation = IsolationKind(raw["isolation"])
+            except ValueError as exc:
+                allowed = ", ".join(k.value for k in IsolationKind)
+                raise RegistryError(
+                    f"{tool_id}: 未知のisolation種別です: {raw['isolation']!r}(使える値: {allowed})"
+                ) from exc
+
+        owner_rules = raw.get("owner_rules") or []
+        if not isinstance(owner_rules, list) or not all(isinstance(r, str) for r in owner_rules):
+            raise RegistryError(f"{tool_id}: owner_rulesは文字列のリストで指定してください: {owner_rules!r}")
+
+        symbol = raw.get("symbol")
+        if symbol is not None and (not isinstance(symbol, str) or not 1 <= len(symbol) <= 2):
+            raise RegistryError(f"{tool_id}: symbolは1〜2文字の文字列で指定してください: {symbol!r}")
+
+        color = raw.get("color")
+        if color is not None and (not isinstance(color, str) or not _COLOR_RE.match(color)):
+            raise RegistryError(f"{tool_id}: colorは#rrggbb形式で指定してください: {color!r}")
+
         return cls(
-            tool_id=raw["tool_id"],
+            tool_id=tool_id,
             display_name=raw["display_name"],
             transport=transport,
             endpoint=raw.get("endpoint"),
@@ -75,6 +121,10 @@ class ToolEntry:
             category=category,
             poll_interval_s=raw.get("poll_interval_s"),
             check_params=raw.get("check_params") or {},
+            isolation=isolation,
+            owner_rules=tuple(owner_rules),
+            symbol=symbol,
+            color=color,
         )
 
 

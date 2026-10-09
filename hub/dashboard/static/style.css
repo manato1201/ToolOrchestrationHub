@@ -9,9 +9,15 @@
  * 必須の状態色(ok/warn/danger)は定義されていない。"chromatic色はshimmerテキストのみ"
  * という原則は尊重しつつ、警告色の代わりに元のヒーローグラデーション自体が持つ
  * amber/rust(琥珀・錆色)を状態色として流用し、新規に彩度の高い色を持ち込まない。
+ *
+ * 2026-10 UI改善(IMPROVEMENT_DESIGN_2026-10.md): 骨格(配色・書体)は変えず、「決めていないこと」を
+ * 無くす方向で直した。ヒーローのグラデーションは外し(U4)、状態の色(緑/橙/赤)だけが目立つようにした。
+ * 状態は必ず「記号 + 文字」を併記し、色だけに頼らない。ライト/ダークはトークンの差し替えで切り替える。
  */
 
 :root {
+  color-scheme: dark;
+
   /* Surfaces — 3段階のフラットマテリアル(shadowは使わない) */
   --surface-void: #0e0e0e;
   --surface-canvas: #151515;
@@ -38,6 +44,18 @@
   --state-danger-bg: #46231a;
   --state-danger-text: #e8a58d;
 
+  /* ツールの丸い記号の文字色(背景は registry.yaml の固定色。どちらのテーマでも同じ) */
+  --symbol-text: #e9ebdf;
+
+  /* オフィス表示の机・モニター・人物 */
+  --office-shadow: rgba(0, 0, 0, 0.35);
+  --office-desk-top: #3a3b37;
+  --office-desk-left: #2c2d2a;
+  --office-desk-right: #323330;
+  --office-monitor: #1b1c1a;
+  --office-person-head: #b6b8af;
+  --office-person-body: #94958e;
+
   /* Typography */
   --font-display: "Inter", "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-label: "Space Grotesk", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -59,6 +77,42 @@
   --radius-badge: 4px;
   --radius-card: 8px;
   --radius-square: 0px;
+  --radius-pill: 999px;
+}
+
+/* ライトテーマ。暗い地・明るい文字のペアを、明るい地・暗い文字へ入れ替えるだけで、
+   余白・書体・レイアウトは同じ。状態色も背景と文字のペアで4.5:1以上を保つ。 */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-void: #efeee6;
+  --surface-canvas: #f7f6f0;
+  --surface-raised: #ffffff;
+  --border-rim: #cfcfc3;
+  --border-rim-subtle: rgba(40, 42, 30, 0.12);
+
+  --text-parchment: #1f2119;
+  --text-fog: #3d3f36;
+  --text-ash: #666860;
+  --text-limestone: #50524a;
+
+  --wash-forest-deep: #cfe7dd;
+  --wash-midnight-moss: #dcebe4;
+
+  --state-ok-bg: #d6efe3;
+  --state-ok-text: #14523f;
+  --state-warn-bg: #f6e3c8;
+  --state-warn-text: #7a4710;
+  --state-danger-bg: #f5d9cf;
+  --state-danger-text: #8a2a14;
+
+  --office-shadow: rgba(0, 0, 0, 0.12);
+  --office-desk-top: #d8d6c8;
+  --office-desk-left: #c3c1b2;
+  --office-desk-right: #cdcbbd;
+  --office-monitor: #3a3b37;
+  --office-person-head: #6f7167;
+  --office-person-body: #8d8f84;
 }
 
 * {
@@ -81,22 +135,19 @@ a {
   text-underline-offset: 2px;
 }
 
-/* Hero: Retoolの"Hero Atmosphere Gradient"(左下からのamber-rustグラデーション)をそのまま流用 */
-.hero-band-dark {
-  background:
-    radial-gradient(
-      at -5% 105%,
-      rgba(27, 46, 68, 0.5) 26%,
-      rgba(51, 45, 43, 0.5) 44%,
-      rgba(74, 43, 17, 0.5) 62%,
-      rgba(73, 31, 22, 0.5) 66%,
-      rgba(21, 21, 21, 0) 85%,
-      rgba(21, 21, 21, 0.03) 100%
-    ),
-    var(--surface-canvas);
-  color: var(--text-parchment);
-  padding: var(--space-56) var(--space-40) var(--space-40);
-  border-bottom: 1px solid var(--border-rim);
+/* 数字は半角・等幅(桁が揃う)。応答時間などは右揃えにする */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.num-col {
+  text-align: right;
+}
+
+.dot-sep {
+  margin: 0 var(--space-4);
+  color: var(--text-ash);
 }
 
 .eyebrow {
@@ -109,50 +160,84 @@ a {
   margin: 0 0 var(--space-8);
 }
 
-.hero-band-dark h1 {
-  font-family: var(--font-display);
-  font-weight: 300;
-  font-size: 48px;
-  line-height: 1.05;
-  letter-spacing: -0.48px;
-  margin: 0 0 var(--space-8);
+/* ---------------------------------------------------------------- トップバー(旧ヒーロー) */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-16) var(--space-24);
+  padding: var(--space-24) max(var(--space-40), calc((100vw - 1120px) / 2)) var(--space-16);
+  border-bottom: 1px solid var(--border-rim);
+  background: var(--surface-canvas);
 }
 
-.hero-band-dark .hero-subtitle {
-  font-weight: 380;
-  font-size: 16px;
-  line-height: 1.5;
-  color: var(--text-fog);
+.topbar-brand h1 {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: -0.32px;
+  color: var(--text-parchment);
+  margin: 0 0 var(--space-4);
+}
+
+.topbar-brand .eyebrow {
+  margin-bottom: var(--space-4);
+}
+
+.topbar-sub {
   margin: 0;
+  font-size: 14px;
+  color: var(--text-fog);
   max-width: 640px;
 }
 
-.badge-live {
-  display: inline-flex;
+.topbar-meta {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  background: var(--wash-midnight-moss);
-  color: var(--text-parchment);
-  font-family: var(--font-label);
-  font-weight: 400;
-  font-size: 12px;
-  letter-spacing: 0.013em;
-  text-transform: uppercase;
-  border-radius: var(--radius-badge);
-  padding: 3px 8px;
-  margin-top: var(--space-16);
-}
-
-.refresh-note {
-  display: block;
-  margin: var(--space-8) 0 0;
+  gap: var(--space-12) var(--space-16);
   font-family: var(--font-label);
   font-size: 12px;
   color: var(--text-ash);
 }
 
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-fog);
+  letter-spacing: 0.013em;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-ok-text);
+}
+
 .refresh-note a {
   color: var(--text-parchment);
+}
+
+.theme-toggle {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-rim);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-parchment);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-grid;
+  place-items: center;
+}
+
+.theme-toggle:hover {
+  border-color: var(--text-parchment);
 }
 
 .mirror-note {
@@ -166,8 +251,12 @@ a {
 main {
   max-width: 1200px;
   margin: 0 auto;
-  padding: var(--space-40);
+  padding: var(--space-32) var(--space-40) var(--space-64);
   display: grid;
+  /* 列を minmax(0, 1fr) にしないと、列の最小幅が中身(幅広の表など)の最小幅になり、
+     狭い画面でページ全体が横にはみ出す。0まで縮められるようにして、はみ出しは各カードの中で
+     スクロールさせる(実際の狭い幅で確認して見つけた不具合) */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-64);
 }
 
@@ -201,6 +290,15 @@ section > h2 {
   margin: 0;
 }
 
+.subhead {
+  margin: var(--space-24) 0 var(--space-4);
+  font-family: var(--font-display);
+  font-weight: 380;
+  font-size: 18px;
+  letter-spacing: -0.18px;
+  color: var(--text-parchment);
+}
+
 .card-base {
   background: var(--surface-raised);
   border: 1px solid var(--border-rim);
@@ -210,6 +308,10 @@ section > h2 {
      長いパス文字列(source-meta)があるとカードの列自体が押し広げられて
      はみ出す("grid blowout")。0にしてグリッド側の1frを優先させる。 */
   min-width: 0;
+  /* テーブルの列数が増える(Alertsは現在6列)ほど、狭いビューポートでは
+     ページ全体が横にはみ出しやすくなる。スクロールをカード内に閉じ込め、
+     bodyが横スクロールしないようにする(過去のgrid blowout修正と同じ意図)。 */
+  overflow-x: auto;
 }
 
 .source-meta {
@@ -233,10 +335,10 @@ th {
   font-weight: 400;
   font-size: 12px;
   letter-spacing: 0.013em;
-  text-transform: uppercase;
   color: var(--text-limestone);
   padding: var(--space-8) var(--space-12);
   border-bottom: 1px solid var(--border-rim);
+  white-space: nowrap;
 }
 
 td {
@@ -255,6 +357,100 @@ tr:last-child td {
   border-bottom: none;
 }
 
+.empty {
+  color: var(--text-ash);
+  font-style: italic;
+  font-size: 14px;
+}
+
+/* ---------------------------------------------------------------- 部品: 記号 / 状態 / 重大度 / チップ / ボタン */
+.symbol {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--symbol-color, var(--border-rim));
+  color: var(--symbol-text);
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--font-label);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.symbol-sm {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+}
+
+.symbol-lg {
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+}
+
+.state-pill,
+.sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-badge);
+  padding: 2px 8px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.013em;
+  white-space: nowrap;
+}
+
+.state-glyph,
+.sev-glyph {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.state-pill.state-ok {
+  background: var(--state-ok-bg);
+  color: var(--state-ok-text);
+}
+
+.state-pill.state-warn {
+  background: var(--state-warn-bg);
+  color: var(--state-warn-text);
+}
+
+.state-pill.state-down {
+  background: var(--state-danger-bg);
+  color: var(--state-danger-text);
+}
+
+.state-pill.state-unknown,
+.state-pill.state-excluded {
+  background: transparent;
+  color: var(--text-ash);
+  border: 1px solid var(--border-rim);
+}
+
+.sev-critical {
+  background: var(--state-danger-bg);
+  color: var(--state-danger-text);
+}
+
+.sev-warn {
+  background: var(--state-warn-bg);
+  color: var(--state-warn-text);
+}
+
+.sev-info {
+  background: transparent;
+  color: var(--text-ash);
+  border: 1px solid var(--border-rim);
+}
+
+/* 古い形式のピル(アラートの状態・リポジトリの起動状況・区分) */
 .pill {
   display: inline-block;
   border-radius: var(--radius-badge);
@@ -263,7 +459,6 @@ tr:last-child td {
   font-size: 11px;
   font-weight: 400;
   letter-spacing: 0.013em;
-  text-transform: uppercase;
 }
 
 .pill-up,
@@ -272,43 +467,997 @@ tr:last-child td {
   color: var(--state-ok-text);
 }
 
-.pill-down,
-.pill-status-open,
-.pill-severity-critical {
+.pill-status-open {
   background: var(--state-danger-bg);
   color: var(--state-danger-text);
 }
 
-.pill-severity-warn {
-  background: var(--state-warn-bg);
-  color: var(--state-warn-text);
-}
-
-.pill-unknown,
-.pill-severity-info,
-.pill-category-excluded {
+.pill-unknown {
   background: transparent;
   color: var(--text-ash);
   border: 1px solid var(--border-rim);
 }
 
-.pill-category-monitored {
-  background: var(--wash-midnight-moss);
-  color: var(--text-parchment);
-}
-
+/* 区分(監視対象かどうか)は状態ではないので、色を持たせず枠線だけにする。
+   以前は「能動監視」が緑のウォッシュで、「正常」と見分けにくかった(U4: 状態の色だけを目立たせる) */
 .pill-category-observed_only {
   background: transparent;
   color: var(--text-limestone);
   border: 1px solid var(--border-rim);
 }
 
-.empty {
+/* 見る順番の目安(補助)。通知とは無関係なので、状態色は使わず枠線だけ */
+.prio {
+  display: inline-block;
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-badge);
+  padding: 0 6px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  color: var(--text-limestone);
+  cursor: help;
+}
+
+.prio-urgent {
+  color: var(--text-parchment);
+  border-color: var(--text-limestone);
+}
+
+.chip-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.chip {
+  background: transparent;
+  color: var(--text-fog);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-pill);
+  padding: 3px 12px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--text-limestone);
+}
+
+/* 選択中は、色ではなく塗りの反転で示す */
+.chip.is-active {
+  background: var(--text-parchment);
+  border-color: var(--text-parchment);
+  color: var(--surface-canvas);
+}
+
+.btn-reload {
+  background: transparent;
+  color: var(--text-parchment);
+  border: 1px solid var(--text-parchment);
+  border-radius: var(--radius-square);
+  padding: 8px 20px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.013em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-reload:disabled {
   color: var(--text-ash);
-  font-style: italic;
+  border-color: var(--border-rim);
+  cursor: default;
+}
+
+input[type="search"],
+select {
+  background: var(--surface-void);
+  color: var(--text-parchment);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-square);
+  padding: 6px 12px;
+  font-family: var(--font-label);
+  font-size: 13px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--text-parchment);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- 概況(左=一覧 / 中央=詳細・オフィス / 右=サマリ) */
+.overview-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+  padding: var(--space-24);
+  min-width: 0;
+}
+
+body.is-history .overview-card {
+  border-style: dashed;
+  border-color: var(--text-limestone);
+}
+
+.history-banner {
+  margin-bottom: var(--space-16);
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+  background: var(--surface-canvas);
+  color: var(--text-fog);
+  font-size: 13px;
+}
+
+.history-banner strong {
+  display: block;
+  color: var(--text-parchment);
+  font-weight: 570;
+}
+
+.overview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-12) var(--space-24);
+  margin-bottom: var(--space-16);
+}
+
+.overview-headline {
+  margin: var(--space-4) 0 0;
+  font-family: var(--font-label);
+  font-size: 13px;
+  color: var(--text-fog);
+}
+
+.headline-item.state-ok {
+  color: var(--state-ok-text);
+}
+
+.headline-item.state-warn {
+  color: var(--state-warn-text);
+}
+
+.headline-item.state-down {
+  color: var(--state-danger-text);
+}
+
+.headline-item.state-unknown,
+.headline-item.state-excluded {
+  color: var(--text-ash);
+}
+
+.overview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.overview-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(190px, 220px);
+  gap: var(--space-24);
+  align-items: start;
+}
+
+.tool-list-panel,
+.center-panel,
+.summary-panel {
+  min-width: 0;
+}
+
+.tool-list-controls {
+  display: grid;
+  gap: var(--space-8);
+  margin-bottom: var(--space-12);
+}
+
+.tool-search {
+  width: 100%;
+}
+
+.tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* ツールが増えても(20件以上でも)ページが間延びしないよう、一覧の中でスクロールさせる */
+  max-height: 560px;
+  overflow-y: auto;
+  border: 1px solid var(--border-rim-subtle);
+  border-radius: var(--radius-card);
+}
+
+.tool-list > li {
+  border-bottom: 1px solid var(--border-rim-subtle);
+}
+
+.tool-list > li:last-child {
+  border-bottom: none;
+}
+
+/* 1行目=名前と状態、2行目=灰色の副題と数値(1行に2つの情報を詰めない。原則 P1)。
+   名前を状態ピルと同じ行で十分な幅に置き、長い名前が単語の途中で折り返されにくくする */
+.tool-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "sym name state"
+    "sym sub metric";
+  align-items: center;
+  column-gap: var(--space-12);
+  row-gap: 2px;
+  width: 100%;
+  padding: 10px var(--space-12);
+  background: transparent;
+  color: inherit;
+  border: none;
+  border-left: 3px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tool-row:hover {
+  background: var(--border-rim-subtle);
+}
+
+.tool-row.is-selected {
+  background: var(--border-rim-subtle);
+  border-left-color: var(--text-parchment);
+}
+
+.tool-row .symbol {
+  grid-area: sym;
+}
+
+.tool-row-name {
+  grid-area: name;
+  min-width: 0;
+  color: var(--text-parchment);
+  font-weight: 500;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.tool-row-state {
+  grid-area: state;
+  justify-self: end;
+}
+
+.tool-row-sub {
+  grid-area: sub;
+  min-width: 0;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+.tool-row-metric {
+  grid-area: metric;
+  justify-self: end;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 中央: 詳細カード */
+.tool-detail {
+  border: 1px solid var(--border-rim-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-20);
+  background: var(--surface-canvas);
+}
+
+.office + .tool-details {
+  margin-top: var(--space-16);
+}
+
+.tool-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  margin-bottom: var(--space-16);
+}
+
+.tool-detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-detail-title h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 380;
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--text-parchment);
+  overflow-wrap: anywhere;
+}
+
+.tool-detail h4 {
+  margin: var(--space-16) 0 var(--space-8);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.013em;
+  color: var(--text-limestone);
+}
+
+.tool-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-12) var(--space-16);
+  margin: 0;
+}
+
+.tool-facts dt {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+.tool-facts dd {
+  margin: 0;
+  color: var(--text-parchment);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.tool-rules ul,
+.tool-alert-list {
+  margin: 0;
+  padding-left: var(--space-20);
+  color: var(--text-fog);
   font-size: 14px;
 }
 
+.tool-alert-list {
+  list-style: none;
+  padding-left: 0;
+  display: grid;
+  gap: var(--space-12);
+}
+
+.tool-alert-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+
+.tool-alert-message {
+  color: var(--text-parchment);
+  overflow-wrap: anywhere;
+}
+
+.alert-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: var(--space-4) 0 0;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+/* 右: サマリ */
+.summary-panel {
+  position: relative;
+}
+
+.summary-panel h3 {
+  margin: 0 0 var(--space-8);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.013em;
+  color: var(--text-limestone);
+}
+
+.summary-panel h4 {
+  margin: var(--space-20) 0 var(--space-8);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-limestone);
+}
+
+.summary-total {
+  margin: 0 0 var(--space-12);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+
+.summary-total-number {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 40px;
+  line-height: 1;
+  color: var(--text-parchment);
+}
+
+.summary-total-unit {
+  font-size: 13px;
+  color: var(--text-ash);
+}
+
+.stack-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--border-rim-subtle);
+}
+
+.stack-seg {
+  flex-basis: 0;
+  min-width: 6px;
+}
+
+.stack-seg.state-ok {
+  background: var(--state-ok-text);
+}
+
+.stack-seg.state-warn {
+  background: var(--state-warn-text);
+}
+
+.stack-seg.state-down {
+  background: var(--state-danger-text);
+}
+
+.stack-seg.state-unknown {
+  background: var(--text-ash);
+}
+
+.stack-seg.state-excluded {
+  background: var(--border-rim);
+}
+
+.stack-legend {
+  list-style: none;
+  margin: var(--space-12) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.stack-legend li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-fog);
+}
+
+.recent-alerts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-12);
+}
+
+.recent-alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+}
+
+.recent-alert.is-resolved {
+  opacity: 0.6;
+}
+
+.recent-alert-message {
+  display: block;
+  font-size: 13px;
+  color: var(--text-parchment);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- オフィス表示(H1) */
+.office-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-12);
+}
+
+.office-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: var(--space-8) var(--space-8) var(--space-12);
+  background: var(--surface-canvas);
+  color: inherit;
+  border: 1px solid var(--border-rim-subtle);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  font: inherit;
+}
+
+.office-tile:hover {
+  border-color: var(--text-limestone);
+}
+
+.office-tile.is-selected {
+  border-color: var(--text-parchment);
+}
+
+/* 名前が長いときは、記号を上の行へ回して名前を1行で読めるようにする(単語の途中で折り返さない) */
+.office-tile-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 6px;
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--text-parchment);
+  text-align: center;
+}
+
+.office-tile-name span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.office-note {
+  margin: var(--space-12) 0 0;
+}
+
+.office-svg {
+  width: 100%;
+  max-width: 150px;
+  height: auto;
+}
+
+.office-shadow {
+  fill: var(--office-shadow);
+}
+
+.desk-top {
+  fill: var(--office-desk-top);
+}
+
+.desk-left {
+  fill: var(--office-desk-left);
+}
+
+.desk-right {
+  fill: var(--office-desk-right);
+}
+
+.monitor-body,
+.monitor-stand {
+  fill: var(--office-monitor);
+}
+
+.monitor-glyph {
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.person .head {
+  fill: var(--office-person-head);
+}
+
+.person .body,
+.person .arm {
+  fill: var(--office-person-body);
+}
+
+.head-mark {
+  font-family: var(--font-label);
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--surface-canvas);
+}
+
+.chair {
+  fill: var(--border-rim);
+}
+
+/* 画面の色 = 状態。文字と記号は必ずタイルの下にも出す */
+.office-ok .monitor-screen {
+  fill: var(--state-ok-bg);
+}
+
+.office-ok .monitor-glyph {
+  fill: var(--state-ok-text);
+}
+
+.office-warn .monitor-screen {
+  fill: var(--state-warn-bg);
+}
+
+.office-warn .monitor-glyph {
+  fill: var(--state-warn-text);
+}
+
+.office-down .monitor-screen {
+  fill: var(--state-danger-bg);
+}
+
+.office-down .monitor-glyph {
+  fill: var(--state-danger-text);
+}
+
+.office-unknown .monitor-screen,
+.office-excluded .monitor-screen {
+  fill: var(--surface-void);
+}
+
+.office-unknown .monitor-glyph,
+.office-excluded .monitor-glyph {
+  fill: var(--text-ash);
+}
+
+.office-excluded .desk-top,
+.office-excluded .desk-left,
+.office-excluded .desk-right,
+.office-excluded .monitor {
+  opacity: 0.55;
+}
+
+/* 動き: 正常=ゆっくりタイプ / 警告=手を振る / 停止=うなだれて動かない。通常画面は静かに(原則 P8)、
+   このビューは切り替えたときだけ表示される。prefers-reduced-motion では全て止まる */
+.office-ok .arm {
+  animation: office-type 1.6s ease-in-out infinite;
+}
+
+.office-ok .arm-right {
+  animation-delay: 0.8s;
+}
+
+.office-warn .arm-right {
+  transform-box: fill-box;
+  transform-origin: 50% 8%;
+  animation: office-wave 1s ease-in-out infinite;
+}
+
+.office-down .person {
+  transform: translateY(5px);
+}
+
+.office-down .head {
+  transform: translate(2px, 3px);
+}
+
+.office-down .arm {
+  transform-box: fill-box;
+  transform-origin: 50% 8%;
+  transform: rotate(10deg);
+}
+
+@keyframes office-type {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(1.8px);
+  }
+}
+
+@keyframes office-wave {
+  0%,
+  100% {
+    transform: rotate(-165deg);
+  }
+  50% {
+    transform: rotate(-125deg);
+  }
+}
+
+/* ---------------------------------------------------------------- アラート履歴スライダー */
+.history-bar {
+  margin-top: var(--space-16);
+  padding: var(--space-12) var(--space-16) var(--space-12);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+}
+
+.history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-16);
+}
+
+.history-title {
+  font-family: var(--font-label);
+  font-size: 12px;
+  letter-spacing: 0.013em;
+  color: var(--text-limestone);
+}
+
+.history-at {
+  font-family: var(--font-label);
+  font-size: 14px;
+  color: var(--text-parchment);
+}
+
+.history-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-8);
+}
+
+.history-actions .btn-reload {
+  padding: 4px 14px;
+}
+
+.history-track {
+  margin-top: var(--space-8);
+}
+
+.history-track input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--text-parchment);
+}
+
+/* 目盛りの左右は、つまみの半分の幅だけ内側に寄せる(つまみの中心と目盛りの位置を合わせるため) */
+.history-ticks {
+  position: relative;
+  height: 10px;
+  margin: 2px 8px 0;
+}
+
+.history-tick {
+  position: absolute;
+  top: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+}
+
+/* 発生は塗りつぶし、解消は白抜き(色だけでなく形でも区別する) */
+.history-tick-opened {
+  background: var(--state-danger-text);
+}
+
+.history-tick-resolved {
+  border: 1.5px solid var(--state-ok-text);
+  background: transparent;
+}
+
+.history-note {
+  margin: var(--space-4) 0 0;
+}
+
+.registry-source {
+  margin-top: var(--space-12);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.registry-source .btn-reload {
+  padding: 4px 14px;
+}
+
+/* ---------------------------------------------------------------- アラート一覧 */
+.alert-export-buttons {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.alert-filter-bar,
+.table-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+}
+
+.alert-filter-bar input[type="search"],
+.table-search-bar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.alert-filter-bar #alert-filter-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.table-search-bar .source-meta {
+  white-space: nowrap;
+}
+
+.alert-main {
+  min-width: 220px;
+}
+
+.alert-title {
+  color: var(--text-parchment);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* 解消済みは灰色にして下へ(並びはサーバー側で未解消が上) */
+.alert-row.is-resolved td {
+  opacity: 0.6;
+}
+
+.runbook {
+  margin-top: var(--space-8);
+}
+
+.runbook summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-limestone);
+}
+
+.runbook summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 開閉の矢印は下向き、開くと上向き(決めごと表 P1) */
+.runbook .chev::after {
+  content: "▾";
+}
+
+.runbook[open] .chev::after {
+  content: "▴";
+}
+
+.runbook-body {
+  margin-top: var(--space-8);
+  padding: var(--space-12);
+  border: 1px solid var(--border-rim-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-canvas);
+}
+
+.runbook-title {
+  margin: 0 0 var(--space-8);
+  color: var(--text-parchment);
+  font-size: 13px;
+}
+
+.runbook-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-12) var(--space-16);
+}
+
+.runbook-cols h5 {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-limestone);
+}
+
+.runbook-cols ul {
+  margin: 0;
+  padding-left: var(--space-16);
+  font-size: 13px;
+  color: var(--text-fog);
+}
+
+/* 空状態(全て静か)。短い一文と小さな動き(原則 P8)。動きは初回の1回だけ描き、あとは静止 */
+.calm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-4) 0 var(--space-16);
+}
+
+.calm-mark {
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+.calm-ring {
+  fill: none;
+  stroke: var(--border-rim);
+  stroke-width: 2;
+  animation: calm-breathe 5s ease-in-out infinite;
+}
+
+.calm-check {
+  fill: none;
+  stroke: var(--state-ok-text);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: calm-draw 0.9s ease-out 0.2s forwards;
+}
+
+.calm.is-played .calm-check {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+
+.calm-text {
+  margin: 0;
+  color: var(--text-fog);
+  font-size: 14px;
+}
+
+@keyframes calm-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes calm-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------- リポジトリ */
+.data-warning {
+  margin-bottom: var(--space-16);
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+  background: var(--state-warn-bg);
+  color: var(--state-warn-text);
+  font-size: 13px;
+}
+
+/* 操作は危険度の低い順に縦に並べ、ワーキングツリーを書き換える同期(Sync)は別の列へ離す */
+.op-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+
+.op-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.op-warn {
+  color: var(--state-danger-text);
+}
+
+.op-sync-cell {
+  border-left: 1px solid var(--border-rim-subtle);
+  padding-left: var(--space-16);
+}
+
+/* ---------------------------------------------------------------- プロファイリング・成果物 */
 .artifact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -345,90 +1494,152 @@ tr:last-child td {
   word-break: break-word;
 }
 
-.btn-reload {
-  background: transparent;
-  color: var(--text-parchment);
-  border: 1px solid var(--text-parchment);
-  border-radius: var(--radius-square);
-  padding: 8px 20px;
-  font-family: var(--font-label);
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0.013em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
+/* ---------------------------------------------------------------- 解消時の演出(小さな紙吹雪) */
+.confetti-layer {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
-.btn-reload:disabled {
-  color: var(--text-ash);
-  border-color: var(--border-rim);
-  cursor: default;
+.confetti-piece {
+  position: absolute;
+  width: 6px;
+  height: 10px;
+  border-radius: 1px;
+  opacity: 0;
+  animation: confetti-fall 1.1s ease-out var(--delay, 0ms) forwards;
 }
 
-.alert-export-buttons {
-  display: flex;
-  gap: var(--space-8);
-  flex-wrap: wrap;
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) rotate(var(--rot));
+  }
 }
 
-.alert-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-8);
-  margin-bottom: var(--space-16);
+/* ---------------------------------------------------------------- 404(遊びごころは404に集める) */
+.not-found-body {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
 }
 
-.alert-filter-bar input,
-.alert-filter-bar select {
-  background: var(--surface-void);
-  color: var(--text-parchment);
-  border: 1px solid var(--border-rim);
-  border-radius: var(--radius-square);
-  padding: 6px 12px;
-  font-family: var(--font-label);
-  font-size: 13px;
-}
-
-.alert-filter-bar input[type="search"] {
-  flex: 1 1 220px;
-  min-width: 0;
-}
-
-.table-search-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  margin-bottom: var(--space-16);
-}
-
-.table-search-bar input[type="search"] {
-  flex: 1 1 220px;
-  min-width: 0;
-  background: var(--surface-void);
-  color: var(--text-parchment);
-  border: 1px solid var(--border-rim);
-  border-radius: var(--radius-square);
-  padding: 6px 12px;
-  font-family: var(--font-label);
-  font-size: 13px;
-}
-
-.table-search-bar .source-meta {
-  white-space: nowrap;
-}
-
-.alert-filter-bar #alert-filter-count {
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-footer {
-  background: var(--surface-void);
-  color: var(--text-ash);
-  padding: var(--space-40);
+.not-found {
   text-align: center;
-  font-size: 12px;
-  border-top: 1px solid var(--border-rim);
+  max-width: 440px;
+  padding: var(--space-24);
+}
+
+.not-found-svg {
+  width: 220px;
+  height: auto;
+}
+
+.not-found-title {
+  margin: 0 0 var(--space-8);
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 28px;
+  color: var(--text-parchment);
+}
+
+.not-found-text {
+  margin: 0 0 var(--space-20);
+  color: var(--text-fog);
+}
+
+.not-found .monitor-screen {
+  fill: var(--surface-void);
+}
+
+.not-found .monitor-glyph {
+  fill: var(--text-ash);
+}
+
+.not-found .wanderer .head {
+  fill: var(--office-person-head);
+}
+
+.not-found .wanderer .body {
+  fill: var(--office-person-body);
+}
+
+.wanderer {
+  animation: wander 6s ease-in-out infinite;
+}
+
+@keyframes wander {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-70px);
+  }
+}
+
+/* ---------------------------------------------------------------- 狭い画面(スマホ幅でも横スクロールさせない) */
+@media (max-width: 960px) {
+  .overview-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 狭い画面では、まず全体の様子(サマリ)→ 一覧 → 詳細の順に見せる */
+  .summary-panel {
+    order: -1;
+  }
+
+  .tool-list {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: var(--space-16);
+  }
+
+  .mirror-note {
+    padding: var(--space-12) var(--space-16) 0;
+  }
+
+  main {
+    padding: var(--space-24) var(--space-16) var(--space-40);
+    gap: var(--space-40);
+  }
+
+  .overview-card,
+  .card-base {
+    padding: var(--space-16);
+  }
+
+  .history-actions {
+    margin-left: 0;
+  }
+
+  .op-sync-cell {
+    padding-left: var(--space-8);
+  }
+}
+
+/* 動きを減らす設定では、演出を全て止める */
+@media (prefers-reduced-motion: reduce) {
+  .office-svg *,
+  .calm-ring,
+  .calm-check,
+  .confetti-piece,
+  .wanderer {
+    animation: none !important;
+  }
+
+  .calm-check {
+    stroke-dashoffset: 0;
+  }
 }

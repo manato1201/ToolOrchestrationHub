@@ -135,3 +135,74 @@ def test_load_wraps_yaml_syntax_error_as_registry_error(tmp_path):
     path.write_text("not: [valid, yaml, syntax", encoding="utf-8")
     with pytest.raises(RegistryError):
         ToolRegistry.load(path)
+
+
+# ---- 2026-10 改善(H4 / U3): isolation・owner_rules・symbol・color ----
+
+def _raw(**extra) -> dict:
+    base = {
+        "tool_id": "sample_tool",
+        "display_name": "Sample",
+        "transport": "static_site",
+        "health_check": None,
+        "category": "excluded",
+    }
+    base.update(extra)
+    return base
+
+
+def test_every_shipped_tool_declares_an_isolation_method():
+    """設計書の検証チェックリスト: 台帳に隔離方式が全ツール分入っている。"""
+    registry = ToolRegistry.load()
+    missing = [e.tool_id for e in registry.all() if e.isolation is None]
+    assert missing == []
+
+
+def test_isolation_accepts_the_four_documented_values_only():
+    from hub.registry import IsolationKind, ToolEntry
+
+    for value in ("none", "sandbox-bash", "container", "vm"):
+        assert ToolEntry.from_dict(_raw(isolation=value)).isolation is IsolationKind(value)
+    with pytest.raises(RegistryError, match="isolation"):
+        ToolEntry.from_dict(_raw(isolation="docker"))
+
+
+def test_new_fields_are_optional_so_existing_registries_still_load():
+    from hub.registry import ToolEntry
+
+    entry = ToolEntry.from_dict(_raw())
+    assert entry.isolation is None
+    assert entry.owner_rules == ()
+    assert entry.symbol is None and entry.color is None
+
+
+def test_owner_rules_must_be_a_list_of_strings():
+    from hub.registry import ToolEntry
+
+    assert ToolEntry.from_dict(_raw(owner_rules=["a", "b"])).owner_rules == ("a", "b")
+    with pytest.raises(RegistryError, match="owner_rules"):
+        ToolEntry.from_dict(_raw(owner_rules="not a list"))
+    with pytest.raises(RegistryError, match="owner_rules"):
+        ToolEntry.from_dict(_raw(owner_rules=[1, 2]))
+
+
+@pytest.mark.parametrize("symbol", ["", "abc", 1])
+def test_symbol_must_be_one_or_two_characters(symbol):
+    from hub.registry import ToolEntry
+
+    with pytest.raises(RegistryError, match="symbol"):
+        ToolEntry.from_dict(_raw(symbol=symbol))
+
+
+@pytest.mark.parametrize("color", ["red", "#fff", "#12345g", 123456])
+def test_color_must_be_a_six_digit_hex(color):
+    from hub.registry import ToolEntry
+
+    with pytest.raises(RegistryError, match="color"):
+        ToolEntry.from_dict(_raw(color=color))
+
+
+def test_owner_rules_carry_the_constraints_previously_only_in_comments():
+    registry = ToolRegistry.load()
+    assert any("クリティカルパス" in r for r in registry.get("learning_qt").owner_rules)
+    assert any("hot path" in r for r in registry.get("sound_middleware").owner_rules)
