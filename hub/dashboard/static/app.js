@@ -483,7 +483,13 @@
 
     function toCsv(rows) {
       const columns = ["alert_id", "status", "severity", "source_tool_id", "message", "occurrence_count", "priority", "first_seen_at", "resolved_at"];
-      const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      // 先頭が = + - @ タブ 改行 のセルは、Excel等が数式として実行しうる(CSVインジェクション)。
+      // アラート本文は外部から届く値なので、' を付けて文字列として扱わせる。
+      const escape = (v) => {
+        let text = String(v ?? "");
+        if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+      };
       const lines = [columns.join(",")];
       rows.forEach((r) => lines.push(columns.map((c) => escape(r[c])).join(",")));
       return lines.join("\r\n");

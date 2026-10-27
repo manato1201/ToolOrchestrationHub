@@ -54,7 +54,12 @@ def find_previous_run(runs: list[dict], target: str, run_id: str) -> Optional[di
 
 
 def load_trace_events(target: str, run_id: str, traces_dir: Path | str = DEFAULT_TRACES_DIR) -> list[dict]:
-    path = Path(traces_dir) / target / f"{run_id}.json"
+    base = Path(traces_dir).resolve()
+    path = (base / target / f"{run_id}.json").resolve()
+    # target/run_idはスタンドアロン版のURLパスから来る。".."でトレース用ディレクトリの外のJSONを
+    # 読ませない(パストラバーサル対策)。
+    if not path.is_relative_to(base):
+        return []
     if not path.exists():
         return []
     with path.open(encoding="utf-8") as f:

@@ -23,3 +23,11 @@ def no_real_repo_sync(monkeypatch):
         return cls([])
 
     monkeypatch.setattr(RepoRegistry, "load", classmethod(_load))
+
+
+@pytest.fixture(autouse=True)
+def _allow_testserver_host(monkeypatch):
+    """TestClientは Host: testserver で送る。Hostの許可リスト(hub/security.py)に足しておく。
+    許可リストの挙動そのものを調べるテスト(tests/test_security.py)は、このフィクスチャの上書き/削除で行う。
+    """
+    monkeypatch.setenv("HUB_ALLOWED_HOSTS", "testserver")

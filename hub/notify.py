@@ -22,7 +22,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from typing import Optional, Protocol
+from typing import Protocol
 
 from .alert_aggregator import AlertRecord, Severity
 

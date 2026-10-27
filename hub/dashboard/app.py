@@ -77,11 +77,12 @@ from __future__ import annotations
 import asyncio
 import getpass
 import logging
+import math
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -111,6 +112,7 @@ from ..process_launcher import check_command_available, check_target_reachable, 
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
 from ..runbooks import DEFAULT_RUNBOOKS_PATH, RunbookCatalog, RunbookError
+from ..security import install_request_guard, resolve_allowed_hosts
 
 # profiling_toolはHubのサブ機能(同一リポジトリ内の別トップレベルパッケージ)なので
 # 絶対importで参照する。Hub自身のRegistry/AlertAggregator等とは独立した1機能として扱い、
@@ -120,6 +122,13 @@ from profiling_tool.aggregate import diff_counter_summary, diff_span_summary
 from profiling_tool.dashboard import data_sources as profiling_data_sources
 
 logger = logging.getLogger(__name__)
+
+# スヌーズの上限(分)。無制限だと実質「永久に通知しない」設定を誤ってAPIから入れられてしまう。
+MAX_SNOOZE_MINUTES = 7 * 24 * 60
+
+# 外部から届くアラート本文の上限。認証の無いローカルAPIなので、巨大な本文でメモリ・SQLite・画面を
+# 膨らませられないようにする(通常のメッセージは数十〜数百文字)。
+MAX_ALERT_MESSAGE_LEN = 1000
 
 # LivenessMonitor.check_all()を呼び出す頻度。実際のネットワーク呼び出しは各ToolEntryの
 # poll_interval_sでレート制限されるため、このループ自体の頻度は「非hot-path原則」に抵触しない。
@@ -217,6 +226,7 @@ def create_app(
     repos_path: Optional[str] = None,
     runbooks_path: Optional[str] = None,
     classifier: Optional[AlertPriorityClassifier] = None,
+    allowed_hosts: Optional[Iterable[str]] = None,
 ) -> FastAPI:
     registry = (
         ToolRegistry.load(registry_path) if registry_path else ToolRegistry.load()
@@ -357,6 +367,8 @@ def create_app(
             store.close()
 
     app = FastAPI(title="ToolOrchestrationHub Dashboard", lifespan=_lifespan)
+    # 認証の無いローカルAPIを、別サイトのページ(CSRF)やDNS rebindingから守る(hub/security.py)
+    install_request_guard(app, allowed_hosts=resolve_allowed_hosts(allowed_hosts))
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     # Jinja2の`tojson`は既定でensure_ascii=True相当のため、日本語等の非ASCII文字を含む
@@ -470,7 +482,6 @@ def create_app(
 
     async def _load_dashboard_context(refresh_interval_s: int) -> dict:
         context = {
-            "registry_rows": data_sources.load_registry_status(registry, monitor),
             "registry_source_path": str(registry.source_path) if registry.source_path else "—",
             "overview": _live_overview(),
             "timeline": build_timeline(aggregator.all()),
@@ -588,9 +599,12 @@ def create_app(
         try:
             minutes = float(minutes)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="minutes must be a number")
-        if minutes <= 0:
-            raise HTTPException(status_code=400, detail="minutes must be positive")
+            raise HTTPException(status_code=400, detail="minutes must be a number") from None
+        # nan/infや巨大な値はtimedeltaの計算で例外になり500を返してしまうため、ここで弾く
+        if not math.isfinite(minutes) or minutes <= 0:
+            raise HTTPException(status_code=400, detail="minutes must be a positive, finite number")
+        if minutes > MAX_SNOOZE_MINUTES:
+            raise HTTPException(status_code=400, detail=f"minutes must be at most {MAX_SNOOZE_MINUTES}")
         until = datetime.now(timezone.utc) + timedelta(minutes=minutes)
         aggregator.snooze(alert_id, until)
         return {"alert_id": alert_id, "snoozed_until": until.isoformat()}
@@ -667,6 +681,7 @@ def create_app(
             alert: AlertRecord = normalize_fn(payload)
         except (ValueError, TypeError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid payload: {exc}") from exc
+        alert.message = str(alert.message)[:MAX_ALERT_MESSAGE_LEN]
 
         if alert.severity is Severity.INFO:
             aggregator.resolve_by_id(alert.alert_id)
