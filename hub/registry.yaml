@@ -13,6 +13,10 @@
 #                 ある項目だけ none 以外にしてあり、それ以外は「いまホストで直接動かしている」前提の none。
 #                 方針として隔離したいツールがあれば、ここだけを書き換える(Hub本体の変更は不要)。
 #   owner_rules : そのツール固有の制約の短文(下の各コメントにあった「Hubは○○しない」等を項目化)。
+#   description / concerns / todo / depends_on(2026-10-27 追補。Z16・X13):
+#                 ツール1件の「手の台帳」。説明・懸念・やり残し。制約は owner_rules。
+#                 depends_on は「このツールが使っているツール」で、台帳のコメントから読み取れる関係だけを書く
+#                 (実測ではない)。障害の波及(原因の木)の表示に使い、存在しないID・自己参照・循環は読み込み時に弾く。
 #   symbol/color: ダッシュボード全体で共通に使う丸い記号(1〜2文字)と固定色。色は暗い地に
 #                 文字色(#e9ebdf)を載せて4.5:1以上のコントラストが出る明度で揃えてある。
 #                 状態色(緑/橙/赤)と見分けがつくよう、彩度を抑えた色にしている。
@@ -29,6 +33,11 @@ tools:
     health_check: rpc_check   # 受動監視のみ。Hubから能動的にQLocalSocketへ接続しない
     category: observed_only
     isolation: container      # repos.yamlの起動方法が docker compose up(api + web)
+    description: "RPC(QLocalSocket)と:8766ブリッジを使う、RAGアシスタント付きのデスクトップ/Webシステム。"
+    todo:
+      - "heartbeat_interval_sは暫定。Phase4(プロセス分離)側の実測値で更新する"
+    depends_on:         # 台帳のコメント由来の関係(実測ではない): RAGアシスタントが使う:8766ブリッジ(要確認)
+      - dev_rag_environment
     owner_rules:
       - "HubはRPCチャネルに介入しない(ハートビートの受動監視のみ)"
     check_params:
@@ -44,6 +53,9 @@ tools:
     health_check: ci_pipeline_check   # CI最終成功runの経過時間のみ見る
     category: monitored
     isolation: vm             # 監視対象はCI(GitHub-hostedランナー = 使い捨てVM)の実行
+    description: "静的サイト。CI/CDのビルド成功/失敗だけを見る。"
+    todo:
+      - "poll_interval_s / expected_interval_sは暫定。対象CIの実際のcron/push頻度で更新する"
     owner_rules: []
     poll_interval_s: 86400            # 暫定。対象CIの実際のcron/push頻度で更新する
     check_params:
@@ -61,6 +73,7 @@ tools:
     health_check: ci_pipeline_check
     category: monitored
     isolation: vm             # GitHub Actions cron(使い捨てVM)
+    description: "GitHub Actionsのcronで動く収集ツール。Issueの自動作成と自動クローズが、Hubのdedup/resolveの前例。"
     owner_rules: []
     poll_interval_s: 21600            # cronの実際の間隔(6時間おき)以下に留める
     check_params:
@@ -77,6 +90,9 @@ tools:
     health_check: http_bridge_check
     category: monitored
     isolation: none           # ホスト上のローカルブリッジ(暫定)
+    description: "rag_local_bridge.pyの:8766ブリッジ。未認証の/healthを公開している。"
+    todo:
+      - "poll_interval_sは暫定。相手側の負荷を増やさない範囲で調整する"
     owner_rules:
       - "Hubが叩くのは未認証の/healthのみ(X-API-Keyが要るエンドポイントには触れない)"
     poll_interval_s: 60               # 暫定。相手側の負荷を増やさない範囲で調整する
@@ -94,6 +110,9 @@ tools:
     health_check: rpc_check
     category: observed_only
     isolation: none           # GPU排他のジョブ列を直接動かす(暫定)
+    description: "VideoFactory。Orchestrator / JobPipeline / ResourceBudgetManagerで、GPUを厳密に直列で使う。"
+    todo:
+      - "heartbeat_interval_sは暫定"
     owner_rules:
       - "Hubは観察のみ"
       - "GPU排他のクリティカルパスに監視トラフィックを入れない"
@@ -110,6 +129,9 @@ tools:
     health_check: ci_pipeline_check
     category: monitored
     isolation: vm             # 監視対象はCI定期実行(使い捨てVM)
+    description: "CIで定期実行し、report_manifest.jsonを出す。Issueで通知する。"
+    todo:
+      - "poll_interval_sは暫定。対象CIの実際の定期実行間隔で更新する"
     owner_rules: []
     poll_interval_s: 86400            # 暫定。対象CIの実際の定期実行間隔で更新する
     check_params:
@@ -128,6 +150,9 @@ tools:
     health_check: rpc_check
     category: observed_only
     isolation: none           # realtimeのhot pathなので包まない
+    description: "独自RPCのリアルタイムミドルウェア。ハートビート/再接続の契約を持つ。"
+    todo:
+      - "heartbeat_interval_sは暫定。Phase3の確定値で更新する"
     owner_rules:
       - "監視/管理チャネルのみHubに相乗りさせる"
       - "realtimeのhot pathには入れない"
@@ -144,6 +169,9 @@ tools:
     health_check: ci_pipeline_check
     category: monitored
     isolation: vm             # 監視対象はCI実行(使い捨てVM)
+    description: "視覚回帰テスト。差し替え可能なアラートsinkを持つ。"
+    todo:
+      - "poll_interval_sは暫定"
     owner_rules: []
     poll_interval_s: 86400            # 暫定
     check_params:
@@ -161,6 +189,7 @@ tools:
     health_check: null
     category: excluded
     isolation: none           # 静的サイト(暫定)
+    description: "静的サイト。実行時の連携は無く、監視対象外。"
     owner_rules: []
 
   # 10. VLMAutoReplayTool — StepLog、:8766ブリッジ利用(DevelopmentRAGEnvironment経由)
@@ -174,6 +203,12 @@ tools:
     health_check: null
     category: observed_only
     isolation: none           # 暫定。GUI操作を自動実行するツールなので、隔離するかは要判断
+    description: "StepLogを使うVLMの自動リプレイ。:8766ブリッジをDevelopmentRAGEnvironment経由で使う。"
+    concerns:
+      - "GUI操作を自動実行するツール。隔離するかどうかは要判断(isolationは暫定)"
+    depends_on:         # 台帳のコメント由来の関係(実測ではない): ブリッジ(DevelopmentRAGEnvironment経由)と、メトリクス取得(ProfilingTool経由)
+      - dev_rag_environment
+      - profiling_tool
     owner_rules:
       - "メトリクスはProfiling Tool経由で間接的に取得する(Hubから直接フックしない)"
 
@@ -188,6 +223,9 @@ tools:
     health_check: null
     category: observed_only
     isolation: none           # フレームクリティカルパスなので包まない
+    description: "フレームごとのGPUコストを計測する対象のミドルウェア。"
+    depends_on:         # 台帳のコメント由来の関係(実測ではない): メトリクスはProfilingTool経由で間接的に取得する
+      - profiling_tool
     owner_rules:
       - "メトリクスはProfiling Tool経由で間接的に取得する(Hubから直接フックしない)"
       - "フレームクリティカルパスには入らない"
@@ -203,6 +241,9 @@ tools:
     health_check: http_bridge_check
     category: monitored
     isolation: none           # Hubのサブ機能として同じリポジトリ内で動く
+    description: "メトリクス/アラートの発行契約を持つ計測基盤。AlertAggregatorの主経路。"
+    todo:
+      - "poll_interval_sは暫定。対象の実際の発行契約間隔で更新する"
     owner_rules: []
     poll_interval_s: 30               # 暫定。対象の実際の発行契約間隔で更新する
     check_params:

@@ -46,6 +46,8 @@ _SEVERITY_ORDER = {Severity.CRITICAL: 0, Severity.WARN: 1, Severity.INFO: 2}
 _BAR_ORDER = (ToolState.DOWN, ToolState.WARN, ToolState.UNKNOWN, ToolState.OK, ToolState.EXCLUDED)
 _HEADLINE_ORDER = (ToolState.OK, ToolState.WARN, ToolState.DOWN, ToolState.UNKNOWN, ToolState.EXCLUDED)
 RECENT_ALERT_LIMIT = 3
+# 原因の木の深さ(根を0として、何段先まで辿るか)。台帳の依存は浅いので、3段で十分
+IMPACT_TREE_MAX_DEPTH = 3
 
 
 def format_age_ja(seconds: float) -> str:
@@ -96,12 +98,15 @@ def build_overview(
     alerts: Iterable[AlertRecord],
     results: Optional[Mapping[str, Optional[HealthResult]]] = None,
     ages: Optional[Mapping[str, Optional[float]]] = None,
+    checked: Optional[Mapping[str, bool]] = None,
     at: Optional[datetime] = None,
     decorate_alert: Optional[Callable[[AlertRecord], dict]] = None,
 ) -> dict:
     """ツール一覧・サマリ・直近アラートをまとめた辞書を返す。at未指定ならライブ、指定なら履歴の再現。
 
     decorate_alertを渡すと、各アラートの辞書に追加の項目(優先度の目安・運用手順など、表示専用)を足す。
+    checkedは「死活監視が起動後に一度でも実行されたか」(LivenessMonitor.has_checked)。Falseの能動監視ツールは
+    「確認中」(row["checking"])として、まだ判定できないことを待ち表示にする。履歴の再現では使わない。
     """
     entries = list(entries)
     alerts = list(alerts)
@@ -153,6 +158,16 @@ def build_overview(
                 "isolation": entry.isolation.value if entry.isolation else None,
                 "isolation_label": ISOLATION_LABEL_JA[entry.isolation],
                 "owner_rules": list(entry.owner_rules),
+                "description": entry.description,
+                "concerns": list(entry.concerns),
+                "todo": list(entry.todo),
+                "checking": (
+                    not historical
+                    and checked is not None
+                    and entry.category is ToolCategory.MONITORED
+                    and entry.health_check is not None
+                    and not checked.get(entry.tool_id, True)
+                ),
                 "state": state.value,
                 "state_label": state_label(state),
                 "state_glyph": state_glyph(state),
@@ -165,6 +180,44 @@ def build_overview(
                 "search": f"{entry.display_name} {entry.tool_id} {entry.category.value} {entry.transport.value}".lower(),
             }
         )
+
+    rows_by_id = {row["tool_id"]: row for row in rows}
+    dependents: dict[str, list[str]] = defaultdict(list)
+    for entry in entries:
+        for dep in entry.depends_on:
+            dependents[dep].append(entry.tool_id)
+
+    def ref(tool_id: str) -> dict:
+        row = rows_by_id[tool_id]
+        return {key: row[key] for key in ("tool_id", "display_name", "symbol", "color", "state", "state_label", "state_glyph")}
+
+    for entry in entries:
+        row = rows_by_id[entry.tool_id]
+        row["depends_on"] = [ref(d) for d in entry.depends_on if d in rows_by_id]
+        row["dependents"] = [ref(d) for d in dependents.get(entry.tool_id, []) if d in rows_by_id]
+
+    def tree(tool_id: str, depth: int, seen: frozenset[str]) -> list[dict]:
+        if depth >= IMPACT_TREE_MAX_DEPTH:
+            return []
+        children = []
+        for child in dependents.get(tool_id, []):
+            if child in seen or child not in rows_by_id:
+                continue
+            children.append({"tool": ref(child), "children": tree(child, depth + 1, seen | {child})})
+        return children
+
+    # 原因の木: 停止しているツールのうち、自分の依存先が停止していないもの(=根)から、
+    # 台帳上の依存で影響を受けうるツールを辿る。実測した波及ではなく、台帳の記述から見た見込み。
+    impact_trees = []
+    for entry in entries:
+        row = rows_by_id[entry.tool_id]
+        if row["state"] != ToolState.DOWN.value:
+            continue
+        if any(rows_by_id[d]["state"] == ToolState.DOWN.value for d in entry.depends_on if d in rows_by_id):
+            continue
+        children = tree(entry.tool_id, 0, frozenset({entry.tool_id}))
+        if children:
+            impact_trees.append({"root": ref(entry.tool_id), "children": children})
 
     counts = {s.value: 0 for s in ToolState}
     for row in rows:
@@ -196,6 +249,7 @@ def build_overview(
                 "source_tool_id": alert.source_tool_id,
                 "symbol": symbol,
                 "color": color,
+                "has_detail": alert.source_tool_id in rows_by_id,
                 "status": "open" if still_open else "resolved",
                 "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
             }
@@ -211,5 +265,17 @@ def build_overview(
         "summary": {"total": total, "counts": counts, "segments": segments, "headline": headline},
         "recent_alerts": recent_alerts,
         "open_alert_keys": sorted({lifecycle_key(a) for a in open_alerts}),
+        # アプリ内のトースト通知とタブ名のバッジ用(新しく出た/解消した、を前回の表示との差で出す)
+        "open_alerts": [
+            {
+                "key": lifecycle_key(a),
+                "message": a.message[:120],
+                "severity": a.severity.value,
+                "severity_glyph": SEVERITY_GLYPH[a.severity.value],
+                "source": rows_by_id[a.source_tool_id]["display_name"] if a.source_tool_id in rows_by_id else a.source_tool_id,
+            }
+            for a in open_alerts
+        ],
+        "impact_trees": impact_trees,
         "all_normal": total > 0 and counts[ToolState.WARN.value] == 0 and counts[ToolState.DOWN.value] == 0 and not open_alerts,
     }

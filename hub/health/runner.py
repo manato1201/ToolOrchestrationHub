@@ -46,6 +46,14 @@ class LivenessMonitor:
     def last_result(self, tool_id: str) -> Optional[HealthResult]:
         return self._results.get(tool_id)
 
+    def has_checked(self, tool_id: str) -> bool:
+        """このツールの死活監視が、起動後に一度でも実行されたか(結果が出た、または実行を試みた)。
+
+        ダッシュボードの「確認中」(スケルトン)用。能動監視のツールは、Hub起動直後の数秒間だけFalseになる。
+        受動監視(ハートビート待ち)のツールは、信号が来るまで確認する相手がいないため、ここでは扱わない。
+        """
+        return tool_id in self._results or tool_id in self._last_polled_at
+
     def last_signal_age_s(self, tool_id: str, *, now: Optional[float] = None) -> Optional[float]:
         """ツールから最後に「生きている」信号(ハートビート/CI成功/upの死活監視結果)を得てからの経過秒。
 

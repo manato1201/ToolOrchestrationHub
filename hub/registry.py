@@ -73,6 +73,13 @@ class ToolEntry:
     owner_rules: tuple[str, ...] = ()  # そのツール固有の「Hubが守る/運用側が守る制約」の短文
     symbol: Optional[str] = None  # ダッシュボード共通の丸い記号(1〜2文字)。未指定は名前から自動生成
     color: Optional[str] = None  # 記号の固定色(#rrggbb)。未指定はtool_idから自動生成
+    # 2026-10-27 追補(Z16 / X13)。ツール1件の「手の台帳」: 説明・懸念・やり残し(制約はowner_rules)と、
+    # 台帳上の依存関係。depends_onは「このツールが使っているツール」のtool_id。実測した依存ではなく、
+    # 台帳の記述(コメント)から読み取れる関係だけを書く(ダッシュボードにもそう表示する)。
+    description: Optional[str] = None
+    concerns: tuple[str, ...] = ()
+    todo: tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, raw: dict) -> "ToolEntry":
@@ -104,6 +111,17 @@ class ToolEntry:
         if not isinstance(owner_rules, list) or not all(isinstance(r, str) for r in owner_rules):
             raise RegistryError(f"{tool_id}: owner_rulesは文字列のリストで指定してください: {owner_rules!r}")
 
+        string_lists: dict[str, tuple[str, ...]] = {}
+        for key in ("concerns", "todo", "depends_on"):
+            value = raw.get(key) or []
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise RegistryError(f"{tool_id}: {key}は文字列のリストで指定してください: {value!r}")
+            string_lists[key] = tuple(value)
+
+        description = raw.get("description")
+        if description is not None and not isinstance(description, str):
+            raise RegistryError(f"{tool_id}: descriptionは文字列で指定してください: {description!r}")
+
         symbol = raw.get("symbol")
         if symbol is not None and (not isinstance(symbol, str) or not 1 <= len(symbol) <= 2):
             raise RegistryError(f"{tool_id}: symbolは1〜2文字の文字列で指定してください: {symbol!r}")
@@ -125,7 +143,43 @@ class ToolEntry:
             owner_rules=tuple(owner_rules),
             symbol=symbol,
             color=color,
+            description=description,
+            concerns=string_lists["concerns"],
+            todo=string_lists["todo"],
+            depends_on=string_lists["depends_on"],
         )
+
+
+def _validate_dependencies(entries: dict[str, ToolEntry]) -> None:
+    """depends_onが、存在するツールだけを指し、自分自身や循環を含まないことを確かめる。
+
+    循環があると「原因の木」(障害の波及の表示)が終わらなくなるため、読み込み時に弾く。
+    ホットリロードでも同じ検証を通るので、壊れた台帳に置き換わることはない。
+    """
+    for entry in entries.values():
+        for dep in entry.depends_on:
+            if dep == entry.tool_id:
+                raise RegistryError(f"{entry.tool_id}: depends_onに自分自身は指定できません")
+            if dep not in entries:
+                raise RegistryError(f"{entry.tool_id}: depends_onの{dep!r}は台帳にありません")
+
+    visiting: set[str] = set()
+    done: set[str] = set()
+
+    def visit(tool_id: str, path: list[str]) -> None:
+        if tool_id in done:
+            return
+        if tool_id in visiting:
+            cycle = " -> ".join([*path[path.index(tool_id):], tool_id])
+            raise RegistryError(f"depends_onが循環しています: {cycle}")
+        visiting.add(tool_id)
+        for dep in entries[tool_id].depends_on:
+            visit(dep, [*path, tool_id])
+        visiting.discard(tool_id)
+        done.add(tool_id)
+
+    for tool_id in entries:
+        visit(tool_id, [])
 
 
 class ToolRegistry:
@@ -141,6 +195,7 @@ class ToolRegistry:
             if e.tool_id in self._entries_by_id:
                 raise RegistryError(f"tool_idが重複しています: {e.tool_id}")
             self._entries_by_id[e.tool_id] = e
+        _validate_dependencies(self._entries_by_id)
         self._source_path = source_path
         self._loaded_mtime = self._stat_mtime(source_path)
 
