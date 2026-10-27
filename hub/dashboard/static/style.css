@@ -47,6 +47,9 @@
   /* ツールの丸い記号の文字色(背景は registry.yaml の固定色。どちらのテーマでも同じ) */
   --symbol-text: #e9ebdf;
 
+  /* 空状態の蜂の巣(ASCII)の線の色。既存の深い緑(--wash-forest-deepのダーク値)を、両テーマで同じ値で使う */
+  --motif-comb: #185849;
+
   /* オフィス表示の机・モニター・人物 */
   --office-shadow: rgba(0, 0, 0, 0.35);
   --office-desk-top: #3a3b37;
@@ -1114,20 +1117,12 @@ body.is-history .overview-card {
   opacity: 0.55;
 }
 
-/* 動き: 正常=ゆっくりタイプ / 警告=手を振る / 停止=うなだれて動かない。通常画面は静かに(原則 P8)、
-   このビューは切り替えたときだけ表示される。prefers-reduced-motion では全て止まる */
-.office-ok .arm {
-  animation: office-type 1.6s ease-in-out infinite;
-}
-
-.office-ok .arm-right {
-  animation-delay: 0.8s;
-}
-
+/* 人物はポーズだけで状態を表す(動きはここには無い)。動きの予算は parts.css の冒頭を参照:
+   正常=腕を下ろして静か / 警告=右手を挙げる(画面の記号はpartsの脈動) / 停止=うなだれる */
 .office-warn .arm-right {
   transform-box: fill-box;
   transform-origin: 50% 8%;
-  animation: office-wave 1s ease-in-out infinite;
+  transform: rotate(-150deg);
 }
 
 .office-down .person {
@@ -1142,26 +1137,6 @@ body.is-history .overview-card {
   transform-box: fill-box;
   transform-origin: 50% 8%;
   transform: rotate(10deg);
-}
-
-@keyframes office-type {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(1.8px);
-  }
-}
-
-@keyframes office-wave {
-  0%,
-  100% {
-    transform: rotate(-165deg);
-  }
-  50% {
-    transform: rotate(-125deg);
-  }
 }
 
 /* ---------------------------------------------------------------- アラート履歴スライダー */
@@ -1372,55 +1347,10 @@ body.is-history .overview-card {
   padding: var(--space-4) 0 var(--space-16);
 }
 
-.calm-mark {
-  width: 40px;
-  height: 40px;
-  flex: none;
-}
-
-.calm-ring {
-  fill: none;
-  stroke: var(--border-rim);
-  stroke-width: 2;
-  animation: calm-breathe 5s ease-in-out infinite;
-}
-
-.calm-check {
-  fill: none;
-  stroke: var(--state-ok-text);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 40;
-  stroke-dashoffset: 40;
-  animation: calm-draw 0.9s ease-out 0.2s forwards;
-}
-
-.calm.is-played .calm-check {
-  animation: none;
-  stroke-dashoffset: 0;
-}
-
 .calm-text {
   margin: 0;
   color: var(--text-fog);
   font-size: 14px;
-}
-
-@keyframes calm-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes calm-breathe {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 /* ---------------------------------------------------------------- リポジトリ */
@@ -1492,36 +1422,6 @@ body.is-history .overview-card {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-/* ---------------------------------------------------------------- 解消時の演出(小さな紙吹雪) */
-.confetti-layer {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-
-.confetti-piece {
-  position: absolute;
-  width: 6px;
-  height: 10px;
-  border-radius: 1px;
-  opacity: 0;
-  animation: confetti-fall 1.1s ease-out var(--delay, 0ms) forwards;
-}
-
-@keyframes confetti-fall {
-  0% {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--dx), var(--dy)) rotate(var(--rot));
-  }
 }
 
 /* ---------------------------------------------------------------- 404(遊びごころは404に集める) */
@@ -1626,20 +1526,5 @@ body.is-history .overview-card {
 
   .op-sync-cell {
     padding-left: var(--space-8);
-  }
-}
-
-/* 動きを減らす設定では、演出を全て止める */
-@media (prefers-reduced-motion: reduce) {
-  .office-svg *,
-  .calm-ring,
-  .calm-check,
-  .confetti-piece,
-  .wanderer {
-    animation: none !important;
-  }
-
-  .calm-check {
-    stroke-dashoffset: 0;
   }
 }

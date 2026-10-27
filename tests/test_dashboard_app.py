@@ -402,13 +402,14 @@ def test_dashboard_renders_snooze_button_and_switches_to_unsnooze(tmp_path):
         alert_id = res.json()["alert_id"]
 
         page = client.get("/")
-        assert "Snooze 1h" in page.text
-        assert 'class="btn-reload alert-unsnooze-btn"' not in page.text
+        assert 'class="switch alert-snooze-btn" role="switch" aria-checked="false"' in page.text
+        assert "スヌーズ 1時間" in page.text
+        assert "alert-unsnooze-btn" not in page.text.split("<script", 1)[0]  # スイッチはまだオフ
 
         client.post(f"/api/alerts/{alert_id}/snooze", json={"minutes": 30})
 
         page = client.get("/")
-        assert "Unsnooze" in page.text
+        assert 'class="switch alert-unsnooze-btn" role="switch" aria-checked="true"' in page.text
         assert "スヌーズ中" in page.text
         assert "🔕" not in page.text  # 絵文字は使わない(決めごと表 P1)
 

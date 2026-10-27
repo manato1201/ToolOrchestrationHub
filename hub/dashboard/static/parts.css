@@ -1,0 +1,498 @@
+/* hub/dashboard/static/parts.css
+ *
+ * IMPROVEMENT_DESIGN_2026-10 「UIパーツ・Motion 追補」の部品と、動きの予算。
+ * 土台(トークン・レイアウト・概況)は style.css、ここは後から足した部品と動きだけを置く。
+ *
+ * ---- 動きの予算 ----------------------------------------------------------------------
+ * 守ること(設計書): ① 1画面で使う動きは2種類まで ② 全て prefers-reduced-motion で止める
+ *                    ③ 通常画面は静かに保つ(原則 P8)
+ *
+ * ダッシュボードの動きは、次の2種類だけ(@keyframesもこの2つだけ。tests/test_dashboard_overview.pyで検査):
+ *   1. 出入り  hub-enter : 現れるときの「薄い→はっきり + 少し動く」。初回表示のスタッガー、トースト、
+ *                          一覧↔オフィスの切り替え(押し出し)。ドロワーは同じ意味のtransition。
+ *   2. 脈動    hub-pulse : 要対応(警告・停止)の記号と、確認中(スケルトン)の、ゆっくりした明滅。
+ * 例外: 空状態の蜂の巣(ASCII)はJS描画。要対応が無いとき(=脈動が無いとき)だけ出る。
+ *        404ページの歩く人物(wander)は別画面。
+ * 取り下げた動き: 紙吹雪(→ 解消はトースト)、人物のタイプ/手を振る(→ 静止ポーズ + 脈動)、
+ *                 空状態のチェックの描画・呼吸(→ 蜂の巣)。動きの種類が2を超えるため。
+ * ------------------------------------------------------------------------------------- */
+
+@keyframes hub-enter {
+  from {
+    opacity: 0;
+    transform: translate(var(--enter-x, 0), var(--enter-y, 6px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hub-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* 脈動: 要対応の状態の記号だけ。文字と記号は必ず併記されているので、動きに頼らない */
+.state-pill.state-warn .state-glyph,
+.state-pill.state-down .state-glyph,
+.office-warn .monitor-glyph,
+.office-down .monitor-glyph,
+.skeleton {
+  animation: hub-pulse 2.4s ease-in-out infinite;
+}
+
+/* 出入り: 初回表示のスタッガー(そのタブで最初の1回だけ。JSがクラスを付けて、終わったら外す) */
+.is-staggering > li {
+  animation: hub-enter 0.32s ease-out both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+/* 出入り: 一覧 ↔ オフィスの切り替え(新しく出る側が右から押し出される) */
+.is-entering {
+  --enter-x: 14px;
+  --enter-y: 0;
+  animation: hub-enter 0.28s ease-out both;
+}
+
+/* ---------------------------------------------------------------- 小さな共通部品 */
+.btn-small {
+  padding: 4px 14px;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-fog);
+  border: 1px solid var(--border-rim);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--surface-void);
+}
+
+.kbd-hint {
+  margin: 0;
+}
+
+.heading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.h4-note {
+  margin-left: var(--space-8);
+  font-weight: 400;
+  color: var(--text-ash);
+}
+
+/* ---------------------------------------------------------------- バッジ(アラート件数) */
+.count-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-label);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.count-badge.is-critical {
+  background: var(--state-danger-bg);
+  color: var(--state-danger-text);
+}
+
+.count-badge.is-warn {
+  background: var(--state-warn-bg);
+  color: var(--state-warn-text);
+}
+
+/* ---------------------------------------------------------------- トグルスイッチ(スヌーズの有効 / 無効) */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-fog);
+  font-family: var(--font-label);
+  font-size: 12px;
+  text-align: left;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 18px;
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-pill);
+  background: var(--surface-void);
+  transition: background 0.15s;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-ash);
+  transition: transform 0.15s, background 0.15s;
+}
+
+/* オンは、つまみの位置と塗り + 横の文字で示す(色だけにしない) */
+.switch[aria-checked="true"] .switch-track {
+  background: var(--text-parchment);
+  border-color: var(--text-parchment);
+}
+
+.switch[aria-checked="true"] .switch-thumb {
+  transform: translateX(16px);
+  background: var(--surface-canvas);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ---------------------------------------------------------------- スケルトン(ヘルスチェック待ち) */
+.skeleton {
+  display: inline-block;
+  border-radius: var(--radius-badge);
+  background: var(--border-rim);
+  vertical-align: middle;
+}
+
+.skeleton-pill {
+  padding: 2px 8px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-limestone);
+  letter-spacing: 0.013em;
+}
+
+.skeleton-line {
+  width: 44px;
+  height: 10px;
+}
+
+/* ---------------------------------------------------------------- ステップインジケーター(すべて起動の進行) */
+.steps {
+  list-style: none;
+  margin: var(--space-8) 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-family: var(--font-label);
+  font-size: 12px;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-ash);
+}
+
+.steps-glyph {
+  width: 14px;
+  text-align: center;
+}
+
+.steps li[data-step="running"] {
+  color: var(--text-parchment);
+}
+
+.steps li[data-step="done"] {
+  color: var(--state-ok-text);
+}
+
+.steps li[data-step="failed"] {
+  color: var(--state-danger-text);
+}
+
+/* ---------------------------------------------------------------- ドロワー */
+.drawer-backdrop {
+  display: none;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(440px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border-rim);
+  transform: translateX(100%);
+  transition: transform 0.22s ease-out;
+}
+
+.drawer[hidden] {
+  display: none;
+}
+
+.drawer.is-open {
+  transform: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  border-bottom: 1px solid var(--border-rim);
+}
+
+.drawer-head h2 {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-limestone);
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-16);
+}
+
+.drawer .tool-detail {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+/* 狭い画面では、ドロワーの外を暗くして、押すと閉じる */
+@media (max-width: 960px) {
+  .drawer-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ---------------------------------------------------------------- トースト */
+.toasts {
+  position: fixed;
+  right: var(--space-16);
+  bottom: var(--space-16);
+  z-index: 60;
+  display: grid;
+  gap: var(--space-8);
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  --enter-y: 8px;
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-8);
+  padding: 10px var(--space-12);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-rim);
+  border-radius: var(--radius-card);
+  animation: hub-enter 0.24s ease-out both;
+}
+
+.toast-kind {
+  font-family: var(--font-label);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toast-new .toast-kind {
+  color: var(--state-danger-text);
+}
+
+.toast-resolved .toast-kind {
+  color: var(--state-ok-text);
+}
+
+.toast-message {
+  font-size: 13px;
+  color: var(--text-parchment);
+  overflow-wrap: anywhere;
+}
+
+.toast-source {
+  display: block;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-ash);
+  font-family: var(--font-label);
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- 詳細カードの追加項目(依存・懸念・やり残し) */
+.tool-description {
+  margin: 0 0 var(--space-16);
+  color: var(--text-fog);
+  font-size: 14px;
+}
+
+.tool-links-label {
+  margin: var(--space-8) 0 var(--space-4);
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+.tool-refs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.tool-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 4px;
+  background: none;
+  color: var(--text-parchment);
+  border: 1px solid var(--border-rim-subtle);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.tool-ref:hover {
+  border-color: var(--text-limestone);
+}
+
+.tool-concerns ul,
+.tool-todo ul {
+  margin: 0;
+  padding-left: var(--space-20);
+  color: var(--text-fog);
+  font-size: 14px;
+}
+
+/* 右サマリ: 直近のアラート(押すと詳細) / 波及の見込み */
+.recent-alert-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+
+button.recent-alert-body {
+  cursor: pointer;
+}
+
+button.recent-alert-body:hover .recent-alert-message {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.impact-note {
+  margin: 0 0 var(--space-8);
+}
+
+.impact-tree,
+.impact-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.impact-tree ul {
+  margin-left: var(--space-12);
+  padding-left: var(--space-8);
+  border-left: 1px solid var(--border-rim);
+}
+
+.impact-tree li {
+  padding: 3px 0;
+}
+
+/* 右サマリは狭いので、木の中では、名前の下に状態を置いて、列からはみ出さないようにする */
+.impact-tree .tool-ref {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 2px;
+  max-width: 100%;
+  padding: 3px 8px 3px 4px;
+  border-radius: var(--radius-card);
+  text-align: left;
+}
+
+.impact-tree .tool-ref-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.impact-tree .tool-ref .state-pill {
+  grid-column: 2;
+  justify-self: start;
+}
+
+/* ---------------------------------------------------------------- 空状態の蜂の巣(ASCII) */
+.hive {
+  margin: 0;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.15;
+  color: var(--motif-comb);
+  white-space: pre;
+  user-select: none;
+}
+
+.hive .bee {
+  color: var(--state-ok-text);
+}
+
+/* ---------------------------------------------------------------- 動きを減らす設定: 全ての動きを止める */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

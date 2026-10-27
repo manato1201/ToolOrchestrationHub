@@ -15,6 +15,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+  <link rel="stylesheet" href="/static/parts.css?v={{ asset_version }}">
   <script src="/static/app.js?v={{ asset_version }}" defer></script>
 </head>
 <body data-refresh-interval="{{ refresh_interval_s or 0 }}">
@@ -34,6 +35,8 @@
           自動更新は停止中です(<a href="/?refresh=20">再開</a>)
         {% endif %}
       </span>
+      {#- 並び順・絞り込み・表示・テーマは自動で保存される。直前の変更を1つ戻す(もう一度押すとやり直し) -#}
+      <button type="button" id="restore-view" class="btn-reload btn-small" disabled title="並び順・絞り込み・表示・テーマを、直前の変更の前に戻します(もう一度押すとやり直し)">前回の表示に戻す</button>
       <button type="button" id="theme-toggle" class="theme-toggle" aria-label="ライト/ダークを切り替える" title="ライト/ダークを切り替える"><span aria-hidden="true" class="theme-toggle-icon"></span></button>
     </div>
   </header>
@@ -78,7 +81,13 @@
       <div class="section-header">
         <div>
           <p class="eyebrow">アラート集約</p>
-          <h2>アラート</h2>
+          <div class="heading-row">
+            <h2>アラート</h2>
+            {% set open_alerts = alert_rows|selectattr("status", "equalto", "open")|list %}
+            {% if open_alerts %}
+            <span class="count-badge {% if open_alerts|selectattr('severity', 'equalto', 'critical')|list %}is-critical{% else %}is-warn{% endif %}" aria-label="未解消 {{ open_alerts|length }}件"><span class="num">{{ open_alerts|length }}</span></span>
+            {% endif %}
+          </div>
         </div>
         {% if alert_rows|length > 0 %}
         <div class="alert-export-buttons">
@@ -91,11 +100,10 @@
         {% set open_count = alert_rows|selectattr("status", "equalto", "open")|list|length %}
         {% if open_count == 0 %}
         {#- 空状態(原則 P8): 短い一文と小さな動き。動きは prefers-reduced-motion で止まる -#}
+        {#- 巣と働き蜂(ASCII)。各ツール=働き蜂、Hub=巣。正常なツールは巣の周りを飛び、それ以外は巣で休む。
+            動くのは空状態のときだけ(原則 P8)。画面外・タブが裏のとき、動きを減らす設定のときは止まる -#}
         <div class="calm" role="status">
-          <svg class="calm-mark" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-            <circle class="calm-ring" cx="24" cy="24" r="20"/>
-            <path class="calm-check" d="M14 25 l7 7 l13 -15"/>
-          </svg>
+          <pre class="hive" id="hive" aria-hidden="true" data-flying="{{ overview.summary.counts.ok }}" data-resting="{{ overview.summary.counts.unknown + overview.summary.counts.excluded }}"></pre>
           <p class="calm-text">現在アラートはありません。</p>
         </div>
         {% endif %}
@@ -149,11 +157,11 @@
               <td class="source-meta num"><time datetime="{{ a.first_seen_at }}">{{ a.first_seen_at|localtime }}</time></td>
               <td class="source-meta num">{% if a.resolved_at %}<time datetime="{{ a.resolved_at }}">{{ a.resolved_at|localtime }}</time>{% else %}—{% endif %}</td>
               <td>
+                {#- トグルスイッチ: 押すと通知の一時停止(1時間)のオン/オフ。状態は つまみの位置 + 文字 で示す -#}
                 {% if a.snoozed_until %}
-                  <span class="pill pill-category-observed_only">スヌーズ中 <span class="num">{{ a.snoozed_until|localtime }}</span>まで</span>
-                  <button class="btn-reload alert-unsnooze-btn" data-alert-id="{{ a.alert_id }}" type="button">Unsnooze</button>
+                  <button type="button" class="switch alert-unsnooze-btn" role="switch" aria-checked="true" data-alert-id="{{ a.alert_id }}"><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span><span class="switch-label">スヌーズ中 <span class="num">{{ a.snoozed_until|localtime }}</span>まで</span></button>
                 {% else %}
-                  <button class="btn-reload alert-snooze-btn" data-alert-id="{{ a.alert_id }}" type="button">Snooze 1h</button>
+                  <button type="button" class="switch alert-snooze-btn" role="switch" aria-checked="false" data-alert-id="{{ a.alert_id }}"><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span><span class="switch-label">スヌーズ 1時間</span></button>
                 {% endif %}
               </td>
             </tr>
@@ -219,7 +227,7 @@
                   </div>
                   {% for lt in r.launch_targets %}
                     <div class="op-row">
-                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" type="button">
+                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" type="button">
                         Start: {{ lt.name }}
                         {% if lt.reachable is not none %}
                           {% if lt.reachable %}<span class="pill pill-up">running</span>{% else %}<span class="pill pill-unknown">stopped</span>{% endif %}
@@ -397,5 +405,19 @@
       </div>
     </section>
   </main>
+
+  {#- ドロワー: 一覧を見たまま、ツールの詳細・直近のアラートを右から開く。非モーダル(一覧は操作できる)。
+      狭い画面とオフィス表示で使う。Escまたは「閉じる」で閉じる。開いている間は自動更新を止める -#}
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-title" hidden>
+    <header class="drawer-head">
+      <h2 id="drawer-title">ツールの詳細</h2>
+      <button type="button" class="btn-reload btn-small" id="drawer-close">閉じる</button>
+    </header>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  {#- アプリ内のトースト: 新しく出た / 解消されたアラート(Windowsトースト・Slack通知と対応)。数秒で消える -#}
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

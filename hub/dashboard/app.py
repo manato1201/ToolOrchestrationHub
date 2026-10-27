@@ -70,6 +70,11 @@ v2.5: IMPROVEMENT_DESIGN_2026-10 / IMPROVEMENT_PLAN_2026-10 に沿ったUI・運
 - アラートに発生回数・見る順番の補助(hub/alert_priority.py)・運用手順(hub/runbooks.yaml)を添える。
   どちらも表示専用で、通知・dedup・resolveの経路には繋がない(hub/alert_view.py)
 - ブラウザでの404のみ遊びのあるページを返す(APIは従来どおりJSON)
+
+v2.6: 設計書の追補(UIパーツ・動きの予算・キー操作)とセキュリティ点検(README・docs/SECURITY_REVIEW_2026-10.md参照)。
+- hub/security.py: Hostの許可リスト(DNS rebinding)と、変更操作のOriginの検査(CSRF)。認証の無いローカルAPIを守る
+- 台帳のdescription/concerns/todo/depends_on、停止の波及の木(overview.impact_trees)、確認中(スケルトン)
+- バッジ・ドロワー・トースト・トグルスイッチ・ステップインジケーター(static/parts.css, app.js)。動きは2種類まで
 """
 
 from __future__ import annotations
@@ -163,14 +168,14 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def _static_asset_version() -> str:
-    """style.css / app.js のmtime(新しい方)をキャッシュバスティング用のクエリ値として使う。
+    """style.css / parts.css / app.js のmtime(いちばん新しいもの)をキャッシュバスティング用のクエリ値として使う。
 
     StaticFilesはCache-Controlを付けないため、ブラウザが古いCSS/JSを再検証なしに
     キャッシュし続けることがある。<link>/<script>のURLにこの値を付与し、ファイルを
     更新するたびにURL自体を変えることで確実に新しい版を取得させる。
     """
     mtimes = []
-    for name in ("style.css", "app.js"):
+    for name in ("style.css", "parts.css", "app.js"):
         try:
             mtimes.append(int((BASE_DIR / "static" / name).stat().st_mtime))
         except FileNotFoundError:
@@ -463,6 +468,7 @@ def create_app(
             alerts=aggregator.all(),
             results={e.tool_id: monitor.last_result(e.tool_id) for e in entries},
             ages={e.tool_id: monitor.last_signal_age_s(e.tool_id) for e in entries},
+            checked={e.tool_id: monitor.has_checked(e.tool_id) for e in entries},
             decorate_alert=decorate_alert,
         )
 

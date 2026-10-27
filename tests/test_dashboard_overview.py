@@ -384,6 +384,7 @@ def test_page_wires_assets_with_cache_busting_and_a_noscript_refresh_fallback(tm
         css = client.get("/static/style.css")
     assert re.search(r'<script src="/static/app\.js\?v=\d+" defer></script>', html)
     assert re.search(r'<link rel="stylesheet" href="/static/style\.css\?v=\d+">', html)
+    assert re.search(r'<link rel="stylesheet" href="/static/parts\.css\?v=\d+">', html)
     assert '<noscript><meta http-equiv="refresh" content="20"></noscript>' in html
     assert js.status_code == 200 and css.status_code == 200
     assert 'id="theme-toggle"' in html
@@ -413,11 +414,16 @@ def test_browser_404_gets_the_playful_page_but_the_api_keeps_json(tmp_path):
     assert plain.status_code == 404 and plain.headers["content-type"].startswith("application/json")
 
 
-def test_404_animation_stops_for_reduced_motion():
-    css = (app_module.BASE_DIR / "static" / "style.css").read_text(encoding="utf-8")
+def test_every_animation_and_transition_stops_for_reduced_motion():
+    """動きを減らす設定では、個別のセレクタを列挙せず、全ての動き(404の人物を含む)を一括で止める。"""
+    css = (app_module.BASE_DIR / "static" / "parts.css").read_text(encoding="utf-8")
     reduced = css[css.index("@media (prefers-reduced-motion: reduce)"):]
-    for selector in (".office-svg *", ".calm-ring", ".confetti-piece", ".wanderer"):
-        assert selector in reduced
+    assert "animation: none !important" in reduced
+    assert "transition: none !important" in reduced
+    assert re.search(r"\*,\s*\*::before,\s*\*::after", reduced)
+    # 404ページもparts.cssを読むので、歩く人物も止まる
+    template = (app_module.BASE_DIR / "templates" / "404.html").read_text(encoding="utf-8")
+    assert "/static/parts.css" in template
 
 
 # ---------------------------------------------------------------- 20ツールでも崩れない

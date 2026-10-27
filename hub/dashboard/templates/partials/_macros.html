@@ -66,3 +66,24 @@
   </g>
 </svg>
 {%- endmacro %}
+
+{#- 台帳上の依存で結ばれた別のツールへの参照。押すとそのツールの詳細へ移る(依存を辿れる) -#}
+{% macro tool_ref(ref) -%}
+<button type="button" class="tool-ref" data-select-tool="{{ ref.tool_id }}">
+  {{ symbol(ref.symbol, ref.color, "sm") }}<span class="tool-ref-name">{{ ref.display_name }}</span>{{ state_pill(ref.state, ref.state_label, ref.state_glyph) }}
+</button>
+{%- endmacro %}
+
+{#- 原因の木の1ノード(再帰)。状態は記号 + 文字で併記する -#}
+{% macro impact_node(node) -%}
+<li>
+  {{ tool_ref(node.tool) }}
+  {% if node.children %}<ul>{% for child in node.children %}{{ impact_node(child) }}{% endfor %}</ul>{% endif %}
+</li>
+{%- endmacro %}
+
+{#- 能動監視のツールが、起動直後でまだ一度も確認されていないあいだの待ち表示(スケルトン)。
+    「正常」とも「未確認」とも言わず、確認中であることだけを文字でも出す。 -#}
+{% macro checking_pill() -%}
+<span class="skeleton skeleton-pill" role="status">確認中</span>
+{%- endmacro %}
