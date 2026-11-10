@@ -91,6 +91,7 @@ from typing import Iterable, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -117,6 +118,7 @@ from ..process_launcher import check_command_available, check_target_reachable, 
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
 from ..runbooks import DEFAULT_RUNBOOKS_PATH, RunbookCatalog, RunbookError
+from .. import audit, auth, auth_routes
 from ..security import install_request_guard, resolve_allowed_hosts
 
 # profiling_toolはHubのサブ機能(同一リポジトリ内の別トップレベルパッケージ)なので
@@ -356,6 +358,7 @@ def create_app(
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
+        auth.ensure_auth_configured()  # HUB_AUTH=required でユーザーが居なければ、ここで起動を止める(fail-closed)
         poll_task = asyncio.create_task(_poll_loop())
         watch_task = asyncio.create_task(_registry_watch_loop())
         prune_task = asyncio.create_task(_prune_loop())
@@ -374,6 +377,11 @@ def create_app(
     app = FastAPI(title="ToolOrchestrationHub Dashboard", lifespan=_lifespan)
     # 認証の無いローカルAPIを、別サイトのページ(CSRF)やDNS rebindingから守る(hub/security.py)
     install_request_guard(app, allowed_hosts=resolve_allowed_hosts(allowed_hosts))
+    # 監査ログ(hub/audit.py): 変更系と、認証・権限の失敗を記録する。ガードの外側に入れて、ガードの 403 も残す
+    audit.install_audit(app)
+    # 認証と役割(hub/auth.py)。既定は off(従来どおり)。HUB_AUTH=required で、API は viewer 以上を要求する。
+    # 操作(スヌーズ・起動・各ツールからの送信)は operator、registry の再読み込みと git pull(同期)は admin。
+    app.include_router(auth_routes.router)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     # Jinja2の`tojson`は既定でensure_ascii=True相当のため、日本語等の非ASCII文字を含む
@@ -556,31 +564,39 @@ def create_app(
 
     @app.get("/")
     async def dashboard(request: Request, refresh: int = DEFAULT_REFRESH_INTERVAL_S):
+        # 認証が required で、まだログインしていなければ、ログインのページへ(API は 401 を返すが、HTML は画面に回す)
+        if auth.auth_mode() == "required":
+            try:
+                principal = auth.current_principal(request)
+            except HTTPException:
+                principal = None
+            if principal is None:
+                return RedirectResponse("/login", status_code=303)
         # 常時表示しておく監視画面向けに既定でmeta refreshする。?refresh=0で無効化できる。
         return templates.TemplateResponse(
             request, "index.html", await _load_dashboard_context(refresh)
         )
 
-    @app.get("/api/registry")
+    @app.get("/api/registry", dependencies=[auth.viewer])
     async def api_registry() -> list[dict]:
         return data_sources.load_registry_status(registry, monitor)
 
-    @app.get("/api/alerts")
+    @app.get("/api/alerts", dependencies=[auth.viewer])
     async def api_alerts() -> list[dict]:
         return _alert_rows()
 
-    @app.get("/api/overview")
+    @app.get("/api/overview", dependencies=[auth.viewer])
     async def api_overview(at: Optional[str] = None) -> dict:
         """ツール一覧・サマリ・直近アラート。atを付けると、その時刻のアラート履歴から状態を再構成する。"""
         at_dt = _parse_at_or_400(at)
         return _history_overview(at_dt) if at_dt is not None else _live_overview()
 
-    @app.get("/api/history/timeline")
+    @app.get("/api/history/timeline", dependencies=[auth.viewer])
     async def api_history_timeline() -> dict:
         """アラート履歴スライダーの範囲と目盛り(発生・解消の時刻)。"""
         return build_timeline(aggregator.all())
 
-    @app.get("/fragments/overview")
+    @app.get("/fragments/overview", dependencies=[auth.viewer])
     async def fragment_overview(request: Request, at: Optional[str] = None):
         """概況(左=ツール一覧 / 中央=詳細・オフィス / 右=サマリ)のHTML断片。
 
@@ -591,7 +607,7 @@ def create_app(
         overview = _history_overview(at_dt) if at_dt is not None else _live_overview()
         return templates.TemplateResponse(request, "partials/overview.html", {"overview": overview})
 
-    @app.post("/api/alerts/{alert_id}/snooze")
+    @app.post("/api/alerts/{alert_id}/snooze", dependencies=[auth.operator])
     async def api_alert_snooze(alert_id: str, payload: Optional[dict] = Body(default=None)) -> dict:
         """使いやすさ改善: 同一アラートが短時間でopen/resolveを繰り返す(フラッピング)場合に、
         通知(Windowsトースト/Slack)だけを一時的に抑制する。アラート自体の状態は変えない。
@@ -615,12 +631,12 @@ def create_app(
         aggregator.snooze(alert_id, until)
         return {"alert_id": alert_id, "snoozed_until": until.isoformat()}
 
-    @app.post("/api/alerts/{alert_id}/unsnooze")
+    @app.post("/api/alerts/{alert_id}/unsnooze", dependencies=[auth.operator])
     async def api_alert_unsnooze(alert_id: str) -> dict:
         aggregator.unsnooze(alert_id)
         return {"alert_id": alert_id, "snoozed_until": None}
 
-    @app.post("/api/registry/reload")
+    @app.post("/api/registry/reload", dependencies=[auth.admin])
     async def api_registry_reload() -> dict:
         """registry.yamlを即座に再読込する(自動監視の待ち時間を挟まない手動トリガ)。"""
         try:
@@ -652,7 +668,7 @@ def create_app(
             )
         return entry
 
-    @app.post("/api/heartbeat/{tool_id}")
+    @app.post("/api/heartbeat/{tool_id}", dependencies=[auth.operator])
     async def api_heartbeat(tool_id: str) -> dict:
         """rpc系ツール(observed_only/monitoredのrpc_check対象)からのハートビート受信口。
 
@@ -665,7 +681,7 @@ def create_app(
         monitor.record_heartbeat(tool_id)
         return {"tool_id": tool_id, "recorded": True}
 
-    @app.post("/api/ci-success/{tool_id}")
+    @app.post("/api/ci-success/{tool_id}", dependencies=[auth.operator])
     async def api_ci_success(tool_id: str) -> dict:
         """CI/cron系ツール(ci_pipeline_check対象)からの最終成功run通知の受信口。
 
@@ -697,13 +713,13 @@ def create_app(
             action = "ingested"
         return {"alert_id": alert.alert_id, "severity": alert.severity.value, "action": action}
 
-    @app.post("/api/alerts/profiling-tool")
+    @app.post("/api/alerts/profiling-tool", dependencies=[auth.operator])
     async def api_alert_profiling_tool(payload: dict) -> dict:
         """Profiling Tool(Phase4のメトリクス/アラート発行契約、AlertAggregatorの主経路)から
         届く生アラートの受信口。"""
         return _normalize_and_ingest(normalize_from_profiling_tool, payload)
 
-    @app.post("/api/alerts/visual-regression-qa")
+    @app.post("/api/alerts/visual-regression-qa", dependencies=[auth.operator])
     async def api_alert_visual_regression_qa(payload: dict) -> dict:
         """Visual Regression QA Tool(Phase5の差し替え可能アラートsink)の1実装としての受信口。
 
@@ -711,22 +727,22 @@ def create_app(
         """
         return _normalize_and_ingest(normalize_from_visual_regression_qa, payload)
 
-    @app.post("/api/alerts/asset-data-insight")
+    @app.post("/api/alerts/asset-data-insight", dependencies=[auth.operator])
     async def api_alert_asset_data_insight(payload: dict) -> dict:
         """Asset Data Insight Suiteのreport_manifest.json 1エントリ分の受信口。"""
         return _normalize_and_ingest(normalize_from_asset_data_insight, payload)
 
-    @app.get("/api/repos")
+    @app.get("/api/repos", dependencies=[auth.viewer])
     async def api_repos() -> list[dict]:
         return _load_repo_rows()
 
-    @app.post("/api/repos/check")
+    @app.post("/api/repos/check", dependencies=[auth.operator])
     async def api_repos_check() -> list[dict]:
         """13リポジトリ全件のgit fetch(差分検知)を即座に実行する。ワーキングツリーは変更しない。"""
         await repo_sync_manager.check_all()
         return _load_repo_rows()
 
-    @app.post("/api/repos/{repo_id}/sync")
+    @app.post("/api/repos/{repo_id}/sync", dependencies=[auth.admin])
     async def api_repo_sync(repo_id: str) -> dict:
         """指定リポジトリの差分を実際に取り込む(git pull --ff-only)。
 
@@ -741,7 +757,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=result.message)
         return {"repo_id": result.repo_id, "ok": result.ok, "message": result.message}
 
-    @app.post("/api/repos/{repo_id}/launch/{target_index}")
+    @app.post("/api/repos/{repo_id}/launch/{target_index}", dependencies=[auth.operator])
     async def api_repo_launch(repo_id: str, target_index: int) -> dict:
         """ユーザー追加要件「個別に起動できるようにしたい」の受け口。
 
@@ -764,7 +780,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=result.message)
         return {"repo_id": repo_id, "ok": result.ok, "message": result.message, "pid": result.pid}
 
-    @app.post("/api/repos/{repo_id}/open-folder")
+    @app.post("/api/repos/{repo_id}/open-folder", dependencies=[auth.operator])
     async def api_repo_open_folder(repo_id: str) -> dict:
         """リポジトリのローカルフォルダをエクスプローラで開く(全リポジトリ共通の最低限のアクション)。"""
         entry = repo_registry.get(repo_id)

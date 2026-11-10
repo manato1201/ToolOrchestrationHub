@@ -11,6 +11,7 @@ dependencies = [
     "jinja2>=3.1",
     "winotify>=1.1; sys_platform == 'win32'",
     "jsonschema>=4.21",
+    "pyjwt[crypto]>=2.9",
 ]
 
 [project.optional-dependencies]

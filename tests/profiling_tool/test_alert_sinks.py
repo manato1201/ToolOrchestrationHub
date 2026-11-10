@@ -108,3 +108,22 @@ def test_tool_orchestration_hub_sink_maps_warning_severity_to_warn(monkeypatch):
     sink.emit({**_ALERT, "severity": "warning"})
 
     assert captured["body"]["severity"] == "warn"
+
+
+def test_hub_sink_sends_the_api_key_only_when_configured(monkeypatch):
+    """Hub が認証(HUB_AUTH=required)のとき、引数か HUB_API_KEY のキーを X-API-Key で送る。無ければ付けない(従来どおり)。"""
+    import urllib.request
+
+    seen = []
+
+    def fake_urlopen(req, timeout=None):
+        seen.append(req.get_header("X-api-key"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    alert = {"severity": "warning", "target": "t", "metric": "m", "value": 1, "threshold": 0}
+    monkeypatch.delenv("HUB_API_KEY", raising=False)
+    ToolOrchestrationHubSink().emit(alert)
+    ToolOrchestrationHubSink(api_key="hub_explicit").emit(alert)
+    monkeypatch.setenv("HUB_API_KEY", "hub_from_env")
+    ToolOrchestrationHubSink().emit(alert)
+    assert seen == [None, "hub_explicit", "hub_from_env"]

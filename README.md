@@ -326,3 +326,29 @@ Hubは認証のないローカルAPIで、ブラウザで別のサイトを開�
 - 全テスト通過(新規は、セキュリティ・台帳・UIパーツ・動きの予算)。実ブラウザ(Chrome)で、ドロワー・トースト・キー操作・表示の復元・起動手順・蜂の巣(画面外で停止)・スケルトン・バッジ・トグルスイッチ・ライト/ダークを確認。
 - 起動手順の表示は、実際には何も起動しないよう `fetch` を差し替えて確認した。
 - **未確認**: Firefox / Safari / スマホ実機。蜂の巣の描画コストの実測。`prefers-reduced-motion` は、CSSとJSの分岐をテストで確認したのみ(OS設定での実機確認はしていない)。
+
+## v2.7: 認証・役割・監査ログ(2026-11-10。設計 QL6 / Z43)
+
+Hub は**ツールの起動・`git pull`・registry の読み直し**までできる。既定は従来どおり**認証なし**(`HUB_AUTH=off`。Host / Origin のガードだけが効く)。複数人で使うときは `HUB_AUTH=required` にする。`required` で**ユーザーが 1 人もいなければ起動しない**(設定ミスで素通しにしない)。
+
+| 役割 | できること |
+|---|---|
+| `viewer` | 見る(ツール一覧・アラート・概況・リポジトリの状態) |
+| `operator` | viewer + アラートのスヌーズ・リポジトリの**起動**・Check all・フォルダを開く、各ツール(Profiling・VRQA・Asset Data Insight・CI)からの heartbeat とアラートの送信 |
+| `admin` | operator + **registry.yaml の再読み込み**・**リポジトリの同期(git pull。他プロジェクトのファイルを書き換える)** |
+
+```bash
+uv run python -m hub.auth add --name alice --role admin       # API キーは 1 度だけ表示される
+uv run python -m hub.auth add --name profiler --role operator  # 各ツールが送るためのキー(機械用)
+uv run python -m hub.auth add --name bob --role viewer --email bob@example.com --no-key   # Cloudflare Access だけで使う人
+uv run python -m hub.auth list
+uv run python -m hub.auth remove --name alice                 # そのキーはすぐ使えなくなる
+HUB_AUTH=required uv run hub
+```
+
+- **ブラウザ**: 未ログインで `/` を開くと `/login` に回る。API キーは HttpOnly・SameSite=Strict のクッキーになる。役割に足りない操作(スヌーズ・起動・Check all=operator、registry の再読み込み・同期=admin)は、ボタンが無効になり必要な権限が表示される。**表示だけで、権限の判断は常にサーバー側(403)**。
+- **各ツールからの送信**: `X-API-Key: <operator のキー>` を付ける。`profiling_tool` の `ToolOrchestrationHubSink` は、引数 `api_key` か環境変数 `HUB_API_KEY` を送る。VRQA・Asset Data Insight・CI からの POST も同じ。
+- **Cloudflare Access**: `HUB_CF_ACCESS_TEAM_DOMAIN`・`HUB_CF_ACCESS_AUD` を設定すると `Cf-Access-Jwt-Assertion` の JWT も使える(RS256 だけ・署名/発行者/宛先/期限を必須。**ユーザーは自動作成しない**: `--email` で登録していない人は 403)。
+- **ユーザーの保存先**: `~/.tool_orchestration_hub/auth_users.json`(`HUB_AUTH_FILE` で変更。キーは**ハッシュだけ**)。
+- **監査ログ**(`HUB_AUDIT_LOG`。既定 `~/.tool_orchestration_hub/audit.jsonl`・JSON Lines): **変更系(POST など)**・**拒否(401・403)**・ログイン・ログアウトを、時刻・名前・役割・方式・パス・結果・IP で残す。**本文・キー・クッキー・クエリは記録しない**。読み取りは記録しない。admin だけ `GET /api/auth/audit?limit=100`。
+- 依存: `pyjwt[crypto]`。

@@ -13,6 +13,7 @@ sinkの実装を一切知らないため、この拡張もsink実装の追加の
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -74,9 +75,12 @@ class ToolOrchestrationHubSink:
     ToolOrchestrationHub側のドキュメントの責務であり、本ツールはその契約に従うだけ)。
     """
 
-    def __init__(self, hub_base_url: str = "http://127.0.0.1:8790", timeout_s: float = 3.0) -> None:
+    def __init__(self, hub_base_url: str = "http://127.0.0.1:8790", timeout_s: float = 3.0,
+                 api_key: Optional[str] = None) -> None:
         self._url = hub_base_url.rstrip("/") + "/api/alerts/profiling-tool"
         self._timeout_s = timeout_s
+        # Hub が認証を要求する(HUB_AUTH=required)ときのキー。引数か、環境変数 HUB_API_KEY。無ければ付けない(従来どおり)。
+        self._api_key = api_key or os.environ.get("HUB_API_KEY")
 
     def emit(self, alert: dict) -> None:
         severity = "warn" if alert["severity"] == "warning" else alert["severity"]
@@ -86,9 +90,10 @@ class ToolOrchestrationHubSink:
             "message": f"{alert['target']}.{alert['metric']}={alert['value']} (threshold={alert['threshold']})",
         }
         body = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            self._url, data=body, headers={"Content-Type": "application/json"}, method="POST"
-        )
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
+        req = urllib.request.Request(self._url, data=body, headers=headers, method="POST")
         try:
             urllib.request.urlopen(req, timeout=self._timeout_s)
         except (urllib.error.URLError, OSError):

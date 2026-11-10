@@ -31,3 +31,13 @@ def _allow_testserver_host(monkeypatch):
     許可リストの挙動そのものを調べるテスト(tests/test_security.py)は、このフィクスチャの上書き/削除で行う。
     """
     monkeypatch.setenv("HUB_ALLOWED_HOSTS", "testserver")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_auth_and_audit(tmp_path, monkeypatch):
+    """認証(hub/auth.py)と監査ログ(hub/audit.py)を、テストごとの一時ファイルに向ける(本物の ~/.tool_orchestration_hub に書かない)。
+    既定は認証 off(従来どおり)。認証のテストは tests/test_auth.py・tests/test_audit.py で required にする。"""
+    monkeypatch.setenv("HUB_AUDIT_LOG", str(tmp_path / "audit.jsonl"))
+    monkeypatch.setenv("HUB_AUTH_FILE", str(tmp_path / "auth_users.json"))
+    for name in ("HUB_AUTH", "HUB_CF_ACCESS_TEAM_DOMAIN", "HUB_CF_ACCESS_AUD"):
+        monkeypatch.delenv(name, raising=False)
