@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>ToolOrchestrationHub — 管理</title>
+  <script>try{var t=localStorage.getItem("hub.theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;}}catch(e){}</script>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+  <link rel="stylesheet" href="/static/parts.css?v={{ asset_version }}">
+  <script src="/static/auth.js?v={{ asset_version }}" defer></script>
+  {#- 管理画面のスクリプトは /static の外。サーバーが admin に限って返す(viewer / operator には配らない)。 -#}
+  <script src="/admin.js" defer></script>
+</head>
+<body>
+{% from "partials/_macros.html" import state_pill %}
+  <header class="topbar">
+    <div class="topbar-brand">
+      <p class="eyebrow">管理者のみ · サーバー側で権限を検査</p>
+      <h1>ToolOrchestrationHub — 管理</h1>
+      <p class="topbar-sub">台帳の再読み込みと、リポジトリの同期(ワーキングツリーを書き換える操作)。変更は監査ログに残ります。</p>
+    </div>
+    <div class="topbar-meta">
+      <a class="btn-reload btn-small" href="/">← ダッシュボードへ戻る</a>
+    </div>
+  </header>
+
+  <main>
+    <section id="registry-section">
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">台帳</p>
+          <h2>registry.yaml</h2>
+        </div>
+      </div>
+      <div class="source-meta">
+        台帳: {{ registry_source_path }}(5秒毎に自動監視、変更検知時は自動で再読み込みします)
+        <button id="reload-registry-btn" class="btn-reload" type="button">Reload registry.yaml</button>
+      </div>
+    </section>
+
+    <section id="sync-section">
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">git pull --ff-only · ワーキングツリーを書き換える</p>
+          <h2>リポジトリの同期</h2>
+        </div>
+      </div>
+      {% if repo_rows|length == 0 %}
+      <p class="empty">同期できるリポジトリはありません(hub/repos.yaml が空、または未設定)。</p>
+      {% else %}
+      <table id="sync-table">
+        <thead>
+          <tr><th>リポジトリ</th><th>ブランチ</th><th>状態</th><th>同期</th></tr>
+        </thead>
+        <tbody>
+          {% for r in repo_rows %}
+          <tr>
+            <td><strong>{{ r.display_name }}</strong><br><span class="source-meta">{{ r.remote_url }}</span></td>
+            <td>{{ r.branch }}</td>
+            <td>
+              {% if r.error %}
+                <span title="{{ r.error }}">{{ state_pill("down", "エラー", "■") }}</span>
+              {% elif r.is_up_to_date is none %}
+                {{ state_pill("unknown", "未確認", "○") }}
+              {% elif r.is_up_to_date %}
+                {{ state_pill("ok", "最新", "✓") }}
+              {% else %}
+                {{ state_pill("warn", r.commits_behind ~ "件遅れ", "▲") }}
+              {% endif %}
+              {% if r.has_local_changes %}
+                {{ state_pill("warn", "未コミットの変更", "▲") }}
+              {% endif %}
+            </td>
+            <td class="op-sync-cell">
+              {% if r.can_sync %}
+                <button class="btn-reload repo-sync-btn" data-repo-id="{{ r.repo_id }}" data-repo-name="{{ r.display_name }}" data-commits-behind="{{ r.commits_behind }}" type="button">Sync</button>
+              {% else %}
+                <span class="source-meta">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

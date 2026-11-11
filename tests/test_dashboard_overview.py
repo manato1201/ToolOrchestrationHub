@@ -392,10 +392,13 @@ def test_page_wires_assets_with_cache_busting_and_a_noscript_refresh_fallback(tm
 
 def test_sync_button_carries_what_the_confirmation_dialog_needs(tmp_path):
     """設計書の検証: 破壊的な操作(同期)に確認が入る。確認文に使う情報がボタンに載っている。"""
-    js = (app_module.BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
+    # 同期は管理画面(admin だけ。2026-11-11 に別ページ・別スクリプトへ分離)にある。ダッシュボード側にはもう無い。
+    js = (app_module.BASE_DIR / "admin" / "admin.js").read_text(encoding="utf-8")
     assert "window.confirm(" in js
-    sync_handler = js[js.index('$$(".repo-sync-btn")'): js.index('$$(".repo-launch-btn")')]
+    sync_handler = js[js.index('$$(".repo-sync-btn")'):]
     assert sync_handler.index("window.confirm(") < sync_handler.index("fetch(")  # 確認してから初めて叩く
+    dashboard_js = (app_module.BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
+    assert "repo-sync-btn" not in dashboard_js and "/sync" not in dashboard_js
 
 
 # ---------------------------------------------------------------- 404
@@ -475,7 +478,9 @@ def test_repo_operations_are_ordered_from_lowest_risk_and_sync_is_kept_apart(tmp
     start_one = html.index("Start: Backend")
     start_all = html.index("Start all (2)")
     assert open_folder < start_one < start_all  # フォルダを開く → 起動 → まとめて起動
-    assert '<td class="op-sync-cell">' in html  # 同期は別の列(視覚的にも離す)
+    # 同期はダッシュボードの表から無くなり、管理画面(別ページ)に移った(操作と最も危険な操作を、画面ごと離す)
+    assert 'op-sync-cell' not in html and "<th>同期</th>" not in html
+    assert 'href="/admin"' in html
 
 
 # ---------------------------------------------------------------- ブラウザ側JSの落とし穴(回帰)

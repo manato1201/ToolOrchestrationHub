@@ -27,6 +27,7 @@ DEFAULT_AUDIT_LOG = Path.home() / ".tool_orchestration_hub" / "audit.jsonl"
 MAX_BYTES = 5 * 1024 * 1024
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 NOT_LOGGED_PATHS = frozenset({"/api/health"})
+PROTECTED_PAGES = frozenset({"/admin", "/admin.js"})  # 管理者向けのページ(dashboard/app.py の auth.admin)
 SELF_LOGGED_PATHS = frozenset({"/api/auth/login", "/api/auth/logout"})
 
 _lock = threading.Lock()
@@ -95,7 +96,7 @@ def install_audit(app: FastAPI) -> None:
     async def audit_middleware(request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path.startswith("/api/") and path not in NOT_LOGGED_PATHS and not path.startswith("/api/auth/audit"):
+        if (path.startswith("/api/") or path in PROTECTED_PAGES) and path not in NOT_LOGGED_PATHS and not path.startswith("/api/auth/audit"):
             if path in SELF_LOGGED_PATHS and response.status_code != 403:
                 return response  # ログイン・ログアウトは routers/auth.py が名前つきで記録する(ガードの 403 だけ、ここで)
             denied = response.status_code in (401, 403)

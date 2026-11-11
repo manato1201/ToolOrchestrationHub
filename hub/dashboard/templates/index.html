@@ -74,7 +74,7 @@
 
       <div class="registry-source source-meta">
         台帳: {{ registry_source_path }}(5秒毎に自動監視、変更検知時は自動で再読み込みします)
-        <button id="reload-registry-btn" class="btn-reload" type="button">Reload registry.yaml</button>
+        <a id="admin-link" class="btn-reload admin-link" href="/admin" title="registry.yaml の再読み込み・リポジトリの同期(admin のみ)">管理画面 →</a>
       </div>
     </section>
 
@@ -198,7 +198,7 @@
         </div>
         <table id="repos-table">
           <thead>
-            <tr><th>リポジトリ</th><th>ブランチ</th><th>状態</th><th>最終確認</th><th>起動</th><th>同期</th></tr>
+            <tr><th>リポジトリ</th><th>ブランチ</th><th>状態</th><th>最終確認</th><th>起動</th></tr>
           </thead>
           <tbody>
             {% for r in repo_rows %}
@@ -255,13 +255,6 @@
                 </div>
                 {% if r.launch_note %}
                   <div class="source-meta" style="margin-top:4px; max-width:320px;">{{ r.launch_note }}</div>
-                {% endif %}
-              </td>
-              <td class="op-sync-cell">
-                {% if r.can_sync %}
-                  <button class="btn-reload repo-sync-btn" data-repo-id="{{ r.repo_id }}" data-repo-name="{{ r.display_name }}" data-commits-behind="{{ r.commits_behind }}" type="button">Sync</button>
-                {% else %}
-                  <span class="source-meta">—</span>
                 {% endif %}
               </td>
             </tr>

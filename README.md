@@ -351,4 +351,5 @@ HUB_AUTH=required uv run hub
 - **Cloudflare Access**: `HUB_CF_ACCESS_TEAM_DOMAIN`・`HUB_CF_ACCESS_AUD` を設定すると `Cf-Access-Jwt-Assertion` の JWT も使える(RS256 だけ・署名/発行者/宛先/期限を必須。**ユーザーは自動作成しない**: `--email` で登録していない人は 403)。
 - **ユーザーの保存先**: `~/.tool_orchestration_hub/auth_users.json`(`HUB_AUTH_FILE` で変更。キーは**ハッシュだけ**)。
 - **監査ログ**(`HUB_AUDIT_LOG`。既定 `~/.tool_orchestration_hub/audit.jsonl`・JSON Lines): **変更系(POST など)**・**拒否(401・403)**・ログイン・ログアウトを、時刻・名前・役割・方式・パス・結果・IP で残す。**本文・キー・クッキー・クエリは記録しない**。読み取りは記録しない。admin だけ `GET /api/auth/audit?limit=100`。
+- **管理画面の分離(2026-11-11)**: registry の再読み込みと同期(`git pull`)は、ダッシュボードのボタンではなく**別ページ `/admin`(+別スクリプト `/admin.js`)**に移した。サーバーが admin に限る(未ログインは `/login` へ・viewer / operator は 403。拒否は監査ログに載る)。`admin.js` は `/static` の外に置き、viewer / operator には配らない。ダッシュボード(`/`・`/static/app.js`)は読み取りと operator の操作だけ。admin 以外には「管理画面 →」のリンクも出さない(表示だけで、判断はサーバー)。`HUB_AUTH=off` のときは従来どおり誰でも開ける。
 - 依存: `pyjwt[crypto]`。

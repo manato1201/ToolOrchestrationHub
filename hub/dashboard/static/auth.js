@@ -17,7 +17,6 @@
   const RANK = { viewer: 0, operator: 1, admin: 2 };
   const GATES = [
     [".alert-snooze-btn, .alert-unsnooze-btn, #repos-check-btn, .repo-launch-btn, .repo-launch-all-btn, .repo-open-folder-btn", "operator"],
-    ["#reload-registry-btn, .repo-sync-btn", "admin"],
   ];
 
   function applyGates(role) {
@@ -72,6 +71,8 @@
         if (me.mode !== "required" || !me.authenticated) return;
         gateByRole(me.role);
         showAccount(me);
+        // 管理画面(registry の再読み込み・リポジトリの同期)は admin だけ。使えない人には入口を出さない(サーバーも 403)
+        if (me.role !== "admin") document.querySelectorAll(".admin-link").forEach((node) => { node.hidden = true; });
       })
       .catch(() => {});
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);

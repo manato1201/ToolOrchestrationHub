@@ -906,24 +906,6 @@
   });
 
   // ------------------------------------------------------------------ 台帳の再読み込み・リポジトリ操作
-  const reloadRegistryBtn = $("#reload-registry-btn");
-  if (reloadRegistryBtn) {
-    reloadRegistryBtn.addEventListener("click", async (event) => {
-      const btn = event.currentTarget;
-      btn.disabled = true;
-      btn.textContent = "Reloading...";
-      try {
-        const res = await fetch("/api/registry/reload", { method: "POST" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        window.location.reload();
-      } catch (err) {
-        btn.disabled = false;
-        btn.textContent = "Reload registry.yaml";
-        window.alert(`registry.yamlの再読込に失敗しました: ${err}`);
-      }
-    });
-  }
-
   const reposCheckBtn = $("#repos-check-btn");
   if (reposCheckBtn) {
     reposCheckBtn.addEventListener("click", async (event) => {
@@ -941,31 +923,6 @@
       }
     });
   }
-
-  // 同期はワーキングツリーを書き換える操作なので、必ず確認を挟む(設計書の検証: 破壊的な操作に確認が入る)
-  $$(".repo-sync-btn").forEach((btn) => {
-    btn.addEventListener("click", async (event) => {
-      const target = event.currentTarget;
-      const name = target.dataset.repoName || target.dataset.repoId;
-      const behind = target.dataset.commitsBehind;
-      const message =
-        `${name} をリモートの最新へ同期します(git pull --ff-only)。\n` +
-        `${behind ? `${behind}件の更新が` : "リモートの更新が"}ワーキングツリーに取り込まれます。\n\n続けますか?`;
-      if (!window.confirm(message)) return;
-      target.disabled = true;
-      target.textContent = "Syncing...";
-      try {
-        const res = await fetch(`/api/repos/${target.dataset.repoId}/sync`, { method: "POST" });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-        window.location.reload();
-      } catch (err) {
-        target.disabled = false;
-        target.textContent = "Sync";
-        window.alert(`同期に失敗しました: ${err}`);
-      }
-    });
-  });
 
   $$(".repo-launch-btn").forEach((btn) => {
     const originalText = btn.textContent;

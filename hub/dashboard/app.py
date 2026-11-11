@@ -91,7 +91,7 @@ from typing import Iterable, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -576,6 +576,33 @@ def create_app(
         return templates.TemplateResponse(
             request, "index.html", await _load_dashboard_context(refresh)
         )
+
+    # 管理画面(registry.yaml の再読み込み・リポジトリの同期=git pull)。ダッシュボードとは別のページ・別のスクリプト(/admin.js。
+    # /static の外)にして、サーバーが admin に限る。viewer / operator には、この画面のコードを配らない。
+    @app.get("/admin")
+    async def admin_page(request: Request):
+        if auth.auth_mode() == "required":
+            try:
+                principal = auth.current_principal(request)
+            except HTTPException:
+                principal = None
+            if principal is None:
+                return RedirectResponse("/login", status_code=303)
+        auth.require_role("admin")(request)  # 足りなければ 403(誰が試したかは、判定の前に監査ログへ載る)
+        return templates.TemplateResponse(
+            request,
+            "admin.html",
+            {
+                "registry_source_path": str(registry.source_path) if registry.source_path else "—",
+                "repo_rows": _load_repo_rows(),
+                "generated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                "asset_version": _static_asset_version(),
+            },
+        )
+
+    @app.get("/admin.js", dependencies=[auth.admin], include_in_schema=False)
+    async def admin_script() -> FileResponse:
+        return FileResponse(BASE_DIR / "admin" / "admin.js", media_type="text/javascript")
 
     @app.get("/api/registry", dependencies=[auth.viewer])
     async def api_registry() -> list[dict]:
