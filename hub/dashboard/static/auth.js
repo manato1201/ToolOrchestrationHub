@@ -16,7 +16,7 @@
 
   const RANK = { viewer: 0, operator: 1, admin: 2 };
   const GATES = [
-    [".alert-snooze-btn, .alert-unsnooze-btn, #repos-check-btn, .repo-launch-btn, .repo-launch-all-btn, .repo-open-folder-btn", "operator"],
+    [".alert-snooze-btn, .alert-unsnooze-btn, #repos-check-btn, .repo-launch-btn, .repo-launch-all-btn, .repo-stop-btn, .repo-open-folder-btn", "operator"],
   ];
 
   function applyGates(role) {

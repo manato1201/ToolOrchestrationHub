@@ -475,6 +475,11 @@ tr:last-child td {
   color: var(--state-danger-text);
 }
 
+.pill-warn {
+  background: var(--state-warn-bg);
+  color: var(--state-warn-text);
+}
+
 .pill-unknown {
   background: transparent;
   color: var(--text-ash);

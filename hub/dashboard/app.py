@@ -114,7 +114,7 @@ from ..alert_view import make_alert_decorator
 from ..health.runner import LivenessMonitor
 from ..notify import default_sink
 from ..overview import build_overview
-from ..process_launcher import check_command_available, check_target_reachable, launch, open_folder
+from ..process_launcher import check_command_available, check_target_reachable, is_alive, launch, open_folder, stop
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
 from ..runbooks import DEFAULT_RUNBOOKS_PATH, RunbookCatalog, RunbookError
@@ -427,20 +427,35 @@ def create_app(
         """
         cached = launch_reachability.get(entry.repo_id)
         history = launch_history.get(entry.repo_id, {})
-        return [
-            {
-                "name": target.name,
-                "url": target.url,
-                "reachable": cached[i] if cached is not None else None,
-                "last_launched_at": history.get(i, {}).get("launched_at"),
-                "last_launched_by": history.get(i, {}).get("launched_by"),
-                "last_launch_ok": history.get(i, {}).get("ok"),
-                # ローカルPATH参照のみ(ネットワークI/O無し)のため、キャッシュせずリクエスト
-                # 毎に確認して問題ない(既存のurlopenベースreachable判定とは事情が異なる)。
-                "command_available": check_command_available(target.command),
-            }
-            for i, target in enumerate(entry.launch_targets)
-        ]
+        rows = []
+        for i, target in enumerate(entry.launch_targets):
+            reachable = cached[i] if cached is not None else None
+            record = history.get(i, {})
+            # このHubが起動して、まだ生きているプロセスだけ「止められる」(PIDは画面へ出さない)
+            can_stop = bool(record.get("ok")) and not record.get("stopped_at") and is_alive(record.get("pid"))
+            # 3値の状態: running(URLに届く) / starting(Hubが起動した・まだ届かない) / stopped
+            if reachable:
+                state = "running"
+            elif can_stop:
+                state = "starting"
+            else:
+                state = "stopped"
+            rows.append(
+                {
+                    "name": target.name,
+                    "url": target.url,
+                    "state": state,
+                    "can_stop": can_stop,
+                    "reachable": reachable,
+                    "last_launched_at": history.get(i, {}).get("launched_at"),
+                    "last_launched_by": history.get(i, {}).get("launched_by"),
+                    "last_launch_ok": history.get(i, {}).get("ok"),
+                    # ローカルPATH参照のみ(ネットワークI/O無し)のため、キャッシュせずリクエスト
+                    # 毎に確認して問題ない(既存のurlopenベースreachable判定とは事情が異なる)。
+                    "command_available": check_command_available(target.command),
+                }
+            )
+        return rows
 
     def _load_repo_rows() -> list[dict]:
         statuses = repo_sync_manager.all_statuses()
@@ -802,10 +817,33 @@ def create_app(
             "launched_by": getpass.getuser(),
             "ok": result.ok,
             "message": result.message,
+            "pid": result.pid if result.ok else None,  # 停止のため、メモリ上にだけ持つ(画面・APIの応答へは出さない)
         }
         if not result.ok:
             raise HTTPException(status_code=500, detail=result.message)
         return {"repo_id": repo_id, "ok": result.ok, "message": result.message, "pid": result.pid}
+
+    @app.post("/api/repos/{repo_id}/stop/{target_index}", dependencies=[auth.operator])
+    async def api_repo_stop(repo_id: str, target_index: int) -> dict:
+        """2026-11-17(本人の要望)「各システムの起動・終了の操作」。**このHubが起動したプロセスだけ**を止める。
+
+        PIDはHTTPリクエストから受け取らず、Hubの起動記録(launch_history)から引く。
+        記録が無い(Hubの外で起動した)・すでに止まっている・PIDが別のプロセスに使い回されている場合は、
+        何も止めずに409で理由を返す。
+        """
+        entry = repo_registry.get(repo_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown repo_id: {repo_id}")
+        if not (0 <= target_index < len(entry.launch_targets)):
+            raise HTTPException(status_code=404, detail=f"unknown launch target index: {target_index}")
+        record = launch_history.get(repo_id, {}).get(target_index) or {}
+        pid = record.get("pid") if record.get("ok") and not record.get("stopped_at") else None
+        result = await asyncio.to_thread(stop, pid)
+        if not result.ok:
+            raise HTTPException(status_code=409, detail=result.message)
+        record["stopped_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        record["stopped_by"] = getpass.getuser()
+        return {"repo_id": repo_id, "ok": True, "message": result.message}
 
     @app.post("/api/repos/{repo_id}/open-folder", dependencies=[auth.operator])
     async def api_repo_open_folder(repo_id: str) -> dict:

@@ -265,3 +265,49 @@ def test_check_command_available_returns_none_for_empty_command():
     from hub.process_launcher import check_command_available
 
     assert check_command_available("") is None
+
+
+# ---- 停止(2026-11-17) ----
+import subprocess  # noqa: E402
+
+from hub.process_launcher import StopResult, is_alive, stop  # noqa: E402
+
+
+def test_stop_without_a_recorded_pid_does_nothing():
+    calls = []
+    res = stop(None, run=lambda *a, **k: calls.append(a))
+    assert res.ok is False and "記録" in res.message and calls == []
+
+
+def test_stop_refuses_when_the_process_is_gone_or_reused():
+    calls = []
+    res = stop(4242, run=lambda *a, **k: calls.append(a), alive=lambda pid: False)
+    assert res.ok is False and "止まっています" in res.message
+    assert calls == []  # 別のプロセスにPIDが使い回されていても、止めない
+
+
+def test_stop_kills_the_process_tree_of_the_recorded_pid(monkeypatch):
+    monkeypatch.setattr("hub.process_launcher.sys.platform", "win32")
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    res = stop(4242, run=fake_run, alive=lambda pid: True)
+    assert res.ok is True
+    assert calls == [["taskkill", "/PID", "4242", "/T", "/F"]]  # 木ごと(/T)・そのPIDだけ
+
+
+def test_stop_reports_taskkill_failure_without_claiming_success(monkeypatch):
+    monkeypatch.setattr("hub.process_launcher.sys.platform", "win32")
+    res = stop(4242, run=lambda cmd, **k: subprocess.CompletedProcess(cmd, 128, "", "x"), alive=lambda pid: True)
+    assert res.ok is False
+
+
+def test_is_alive_needs_the_same_kind_of_process_that_was_launched(monkeypatch):
+    monkeypatch.setattr("hub.process_launcher.sys.platform", "win32")
+    assert is_alive(10, image_name=lambda pid: "cmd.exe") is True
+    assert is_alive(10, image_name=lambda pid: "chrome.exe") is False  # PIDが別のプロセスに使い回された
+    assert is_alive(10, image_name=lambda pid: None) is False
+    assert is_alive(None) is False

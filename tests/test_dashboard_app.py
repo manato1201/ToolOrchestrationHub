@@ -1087,3 +1087,43 @@ def test_dashboard_omits_alert_filter_and_export_when_no_alerts(tmp_path):
         # 有無で判定する(alert_rowsが空ならフィルタバー/エクスポートボタンは描画しない)。
         assert '<input id="alert-filter-search"' not in res.text
         assert 'id="alert-export-json-btn"' not in res.text
+
+
+def test_repo_stop_endpoint_stops_only_what_this_hub_launched(tmp_path, monkeypatch):
+    from hub.process_launcher import LaunchResult, StopResult
+
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    monkeypatch.setattr(app_module, "launch", lambda entry, target, repo_root: LaunchResult(ok=True, message="started", pid=777))
+    stopped = []
+    def fake_stop(pid):
+        if pid is None:
+            return StopResult(ok=False, message="記録がありません")
+        stopped.append(pid)
+        return StopResult(ok=True, message="止めました")
+
+    monkeypatch.setattr(app_module, "stop", fake_stop)
+    monkeypatch.setattr(app_module, "is_alive", lambda pid: pid == 777 and not stopped)
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        # 起動する前は、Hubの記録が無いので止められない(PIDはリクエストから受け取らない)
+        res = client.post("/api/repos/sample/stop/0")
+        assert res.status_code == 409 and stopped == []
+
+        assert client.post("/api/repos/sample/launch/0").status_code == 200
+        page = client.get("/").text
+        assert "Stop: " in page and "起動中" in page  # 起動した・まだ URL に届かない = 起動中(止められる)
+
+        res = client.post("/api/repos/sample/stop/0")
+        assert res.status_code == 200 and stopped == [777]  # 起動記録のPIDだけが渡る
+        assert "Stop: " not in client.get("/").text         # 止めたあとは、Stop が消える
+
+        # もう一度は 409(記録は止め済み)
+        assert client.post("/api/repos/sample/stop/0").status_code == 409
+        assert client.post("/api/repos/sample/stop/99").status_code == 404

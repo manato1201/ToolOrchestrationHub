@@ -9,6 +9,12 @@ Hubは「起動ボタンを押したら、そのツール用のコマンドを�
 とする(Hubは監視・中継のみ、各ツールの権限は奪わないという設計原則の延長 — Hubが
 裏でプロセスを握り続けて制御するのではなく、起動した後は完全にユーザーの手に渡す)。
 
+2026-11-17 改定(本人の要望「起動・停止等の操作ができると利便性が大きく向上する」): **停止**を足した。
+ただし範囲は狭く保つ — 止められるのは「**このHubが起動した**プロセス(起動時に記録したPID)」だけで、
+そのプロセスがまだ生きていて、起動したときと同じ種類(コマンドプロセッサ)であることを確かめてから、
+**そのプロセスの木(子プロセスを含む)**だけを止める。Hubの外で起動したもの・PIDが別のプロセスに
+使い回されたものは止めない(止められない理由を返す)。ログ収集・出力の監視・自動再起動は、引き続きスコープ外。
+
 コマンド文字列はHTTPリクエストから受け取らず、hub/repos.yamlに定義済みの固定値
 (LaunchTarget.command)のみを実行する。ユーザー入力をシェルコマンドへ直接連結する
 経路は無い。
@@ -23,6 +29,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+import signal
+import os
 
 from .repo_sync import LaunchTarget, RepoEntry
 
@@ -91,6 +99,8 @@ def launch(
     kwargs: dict = {"cwd": str(cwd), "shell": True}
     if sys.platform == "win32":
         kwargs["creationflags"] = CREATE_NEW_CONSOLE
+    else:
+        kwargs["start_new_session"] = True  # stop() がプロセスグループごと止められるように
 
     try:
         proc = popen(target.command, **kwargs)
@@ -98,6 +108,67 @@ def launch(
         return LaunchResult(ok=False, message=str(exc))
 
     return LaunchResult(ok=True, message=f"起動しました: {target.command}", pid=getattr(proc, "pid", None))
+
+
+@dataclass
+class StopResult:
+    ok: bool
+    message: str
+
+
+def _process_image_name(pid: int, *, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> Optional[str]:
+    """PIDのプロセスの実行ファイル名(Windows)。存在しなければNone。tasklistの標準出力だけを読む。"""
+    try:
+        done = run(
+            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=5, encoding="utf-8", errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = (done.stdout or "").strip().splitlines()[:1]
+    if not line or not line[0].startswith('"'):
+        return None  # 「情報: 指定された条件に一致するタスクは実行されていません。」など
+    return line[0].split('","')[0].strip('"').lower()
+
+
+def is_alive(pid: Optional[int], *, image_name: Callable[[int], Optional[str]] = _process_image_name) -> bool:
+    """起動したときのコマンドプロセッサ(cmd.exe)がまだ生きているか。別のプロセスにPIDが使い回されていればFalse。"""
+    if pid is None:
+        return False
+    if sys.platform != "win32":
+        try:
+            os.kill(int(pid), 0)
+            return True
+        except OSError:
+            return False
+    return image_name(int(pid)) == "cmd.exe"
+
+
+def stop(
+    pid: Optional[int],
+    *,
+    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    alive: Callable[[Optional[int]], bool] = is_alive,
+) -> StopResult:
+    """Hubが起動したプロセス(pid)の木を止める。生きていない・別のプロセスなら、何もしない。
+
+    `pid`は呼び出し側が「このHubの起動記録」から渡す(HTTPリクエストからPIDは受け取らない)。
+    Windowsは`taskkill /T /F`(子プロセスごと)、それ以外はプロセスグループへSIGTERM。
+    """
+    if pid is None:
+        return StopResult(ok=False, message="このHubが起動した記録がありません(Hubの外で起動したものは、止められません)")
+    if not alive(pid):
+        return StopResult(ok=False, message="すでに止まっています(または、起動したプロセスではなくなっています)")
+    try:
+        if sys.platform == "win32":
+            done = run(["taskkill", "/PID", str(int(pid)), "/T", "/F"], capture_output=True, text=True, timeout=15)
+            if done.returncode != 0:
+                return StopResult(ok=False, message="止められませんでした(権限・または、すでに終了しています)")
+        else:
+            os.killpg(os.getpgid(int(pid)), signal.SIGTERM)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return StopResult(ok=False, message=f"止められませんでした: {type(exc).__name__}")
+    return StopResult(ok=True, message="止めました(起動したウィンドウと、その子プロセスを閉じました)")
 
 
 def open_folder(

@@ -230,10 +230,18 @@
                     <div class="op-row">
                       <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" type="button">
                         Start: {{ lt.name }}
-                        {% if lt.reachable is not none %}
-                          {% if lt.reachable %}<span class="pill pill-up">running</span>{% else %}<span class="pill pill-unknown">stopped</span>{% endif %}
-                        {% endif %}
+                        {#- 状態は 3 つ(記号と文字を併記): 稼働中 / 起動中 / 停止中 -#}
+                        {% if lt.state == "running" %}<span class="pill pill-up">▶ 稼働中</span>
+                        {% elif lt.state == "starting" %}<span class="pill pill-warn">… 起動中</span>
+                        {% elif lt.reachable is not none %}<span class="pill pill-unknown">■ 停止中</span>{% endif %}
                       </button>
+                      {% if lt.can_stop %}
+                      <button class="btn-reload repo-stop-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" type="button" title="このHubが起動したものだけを止めます(起動したウィンドウと、その子プロセス)">
+                        Stop: {{ lt.name }}
+                      </button>
+                      {% elif lt.state == "running" %}
+                      <div class="source-meta">Hubの外で起動されているため、ここからは止められません</div>
+                      {% endif %}
                       {% if lt.command_available is sameas false %}
                       <div class="source-meta op-warn">
                         <span aria-hidden="true">▲</span> 実行コマンドが見つかりません(未インストールの可能性)

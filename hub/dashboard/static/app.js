@@ -944,6 +944,27 @@
     });
   });
 
+  // 停止(2026-11-17)。このHubが起動したものだけ止められる(サーバーが記録したPIDで判断する)。
+  $$(".repo-stop-btn").forEach((btn) => {
+    const originalText = btn.textContent;
+    btn.addEventListener("click", async (event) => {
+      const target = event.currentTarget;
+      target.disabled = true;
+      target.textContent = "Stopping...";
+      try {
+        const res = await fetch(`/api/repos/${target.dataset.repoId}/stop/${target.dataset.targetIndex}`, { method: "POST" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+        target.textContent = "Stopped";
+        window.setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        target.disabled = false;
+        target.textContent = originalText;
+        window.alert(`停止できませんでした: ${err.message || err}`);
+      }
+    });
+  });
+
   // 複数プロセス構成のリポジトリ向け一括起動。既存の単体起動エンドポイントを順番に叩くだけ。
   // 進行はステップインジケーターで見せる(待機 → 実行中 → 完了 / 失敗。記号と文字を併記)。
   const STEP_STATES = {

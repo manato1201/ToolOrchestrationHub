@@ -180,6 +180,8 @@ def launch(
     kwargs: dict = {"cwd": str(cwd), "shell": True}
     if sys.platform == "win32":
         kwargs["creationflags"] = CREATE_NEW_CONSOLE
+    else:
+        kwargs["start_new_session"] = True  # stop() がプロセスグループごと止められるように
 
     try:
         proc = popen(target.command, **kwargs)
