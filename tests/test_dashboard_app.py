@@ -1127,3 +1127,56 @@ def test_repo_stop_endpoint_stops_only_what_this_hub_launched(tmp_path, monkeypa
         # もう一度は 409(記録は止め済み)
         assert client.post("/api/repos/sample/stop/0").status_code == 409
         assert client.post("/api/repos/sample/stop/99").status_code == 404
+
+
+def test_repo_row_shows_last_failure_line_only_after_a_failed_launch(tmp_path, monkeypatch):
+    """SYSTEM_MAP G3: リポジトリの行に「最後の失敗」を1行。失敗が無ければ何も出さず、起動し直して成功すれば消える。"""
+    from hub.process_launcher import LaunchResult
+
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+    results = iter([LaunchResult(ok=False, message="boom happened"), LaunchResult(ok=True, message="ok", pid=None)])
+    monkeypatch.setattr(app_module, "launch", lambda entry, target, repo_root: next(results))
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        assert "最後の失敗" not in client.get("/").text
+        assert client.post("/api/repos/sample/launch/0").status_code == 500
+        page = client.get("/").text
+        assert "最後の失敗: 起動失敗" in page and "boom happened" in page
+        assert client.post("/api/repos/sample/launch/0").status_code == 200
+        assert "最後の失敗" not in client.get("/").text
+
+
+def test_pages_carry_inline_svg_favicon(tmp_path):
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+    app = app_module.create_app(registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"))
+    with TestClient(app) as client:
+        for path in ("/", "/admin", "/no-such-page"):
+            res = client.get(path, headers={"accept": "text/html"})
+            assert 'rel="icon" type="image/svg+xml" href="data:image/svg+xml,' in res.text, path
+
+
+def test_failed_launch_reason_does_not_expose_the_working_directory_path(tmp_path, monkeypatch):
+    from hub.process_launcher import LaunchResult
+
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_launch(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+    monkeypatch.setattr(
+        app_module, "launch",
+        lambda entry, target, repo_root: LaunchResult(ok=False, message="作業ディレクトリが存在しません: C:\secret\place"),
+    )
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        client.post("/api/repos/sample/launch/0")
+        body = client.get("/api/repos").text + client.get("/").text
+        assert "作業ディレクトリが存在しません" in body and "secret" not in body

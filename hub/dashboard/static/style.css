@@ -695,7 +695,8 @@ body.is-history .overview-card {
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "sym name state"
-    "sym sub metric";
+    "sym sub metric"
+    "sym fail fail";
   align-items: center;
   column-gap: var(--space-12);
   row-gap: 2px;
@@ -753,6 +754,22 @@ body.is-history .overview-card {
   color: var(--text-ash);
   text-align: right;
   white-space: nowrap;
+}
+
+/* 最後の失敗(1行)。未解消は状態色、解消済みは灰色。長い文は省略記号で1行に収める(全文は title) */
+.tool-row-fail {
+  grid-area: fail;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-ash);
+}
+
+.tool-row-fail.is-open {
+  color: var(--state-danger-text);
 }
 
 /* 中央: 詳細カード */
@@ -1476,8 +1493,9 @@ body.is-history .overview-card {
   fill: var(--office-person-body);
 }
 
+/* 404の人物は、開いたときに1回だけ歩く(無限には歩かない。動きを減らす設定では parts.css が止める) */
 .wanderer {
-  animation: wander 6s ease-in-out infinite;
+  animation: wander 4s ease-in-out 1;
 }
 
 @keyframes wander {

@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterable, Mapping, Optional
 
 from .alert_aggregator import AlertRecord, Severity
@@ -46,6 +46,9 @@ _SEVERITY_ORDER = {Severity.CRITICAL: 0, Severity.WARN: 1, Severity.INFO: 2}
 _BAR_ORDER = (ToolState.DOWN, ToolState.WARN, ToolState.UNKNOWN, ToolState.OK, ToolState.EXCLUDED)
 _HEADLINE_ORDER = (ToolState.OK, ToolState.WARN, ToolState.DOWN, ToolState.UNKNOWN, ToolState.EXCLUDED)
 RECENT_ALERT_LIMIT = 3
+# 一覧の「最後の失敗」: 解消済みのものは、これより新しいときだけ出す(未解消は期間に関係なく出す)
+LAST_FAILURE_RESOLVED_WINDOW = timedelta(hours=24)
+LAST_FAILURE_MESSAGE_MAX = 72
 # 原因の木の深さ(根を0として、何段先まで辿るか)。台帳の依存は浅いので、3段で十分
 IMPACT_TREE_MAX_DEPTH = 3
 
@@ -87,6 +90,41 @@ def _alert_payload(alert: AlertRecord, decorate: Optional[Callable[[AlertRecord]
     return payload
 
 
+def shorten(text: str, limit: int) -> str:
+    """1行表示のために、長い文を末尾で省略する。"""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def last_failure(alerts: Iterable[AlertRecord], now: datetime, *, at: Optional[datetime] = None) -> Optional[dict]:
+    """そのツールの「最後の失敗」を1件だけ返す(無ければNone)。新しい仕組みは足さず、既存のアラートから出す。
+
+    ヘルスチェックの失敗も、アラートとして集約済み(alert_aggregator.normalize_from_health_check)。
+    失敗 = 重大・警告のアラート。未解消なら期間に関係なく、解消済みなら LAST_FAILURE_RESOLVED_WINDOW 以内だけ出す。
+    未解消を優先し、同じ状態の中では発生が新しいものを選ぶ。
+    """
+    candidates: list[tuple[bool, AlertRecord]] = []
+    for alert in alerts:
+        if alert.severity is Severity.INFO:
+            continue
+        still_open = alert.is_open_at(at) if at is not None else alert.is_open
+        if not still_open and (alert.resolved_at is None or now - alert.resolved_at > LAST_FAILURE_RESOLVED_WINDOW):
+            continue
+        candidates.append((still_open, alert))
+    if not candidates:
+        return None
+    still_open, alert = min(candidates, key=lambda c: (not c[0], -c[1].first_seen_at.timestamp()))
+    since = alert.first_seen_at if still_open else (alert.resolved_at or alert.first_seen_at)
+    return {
+        "message": shorten(alert.message, LAST_FAILURE_MESSAGE_MAX),
+        "severity": alert.severity.value,
+        "severity_glyph": SEVERITY_GLYPH[alert.severity.value],
+        "status": "open" if still_open else "resolved",
+        "status_label": "未解消" if still_open else "解消済",
+        "ago": format_age_ja((now - since).total_seconds()),
+    }
+
+
 def lifecycle_key(alert: AlertRecord) -> str:
     """1つのopen→resolveライフサイクルを一意に表すキー(同じalert_idの再発を区別する)。"""
     return f"{alert.alert_id}@{alert.first_seen_at.isoformat()}"
@@ -126,6 +164,10 @@ def build_overview(
         open_by_tool[alert.source_tool_id].append(alert)
 
     identities = {e.tool_id: (symbol_for(e), color_for(e)) for e in entries}
+    now = at if historical else datetime.now(timezone.utc)
+    seen_by_tool: dict[str, list[AlertRecord]] = defaultdict(list)
+    for alert in seen_alerts:
+        seen_by_tool[alert.source_tool_id].append(alert)
 
     rows = []
     for entry in entries:
@@ -177,6 +219,7 @@ def build_overview(
                 "last_signal_ago": format_age_ja(age) if age is not None else None,
                 "last_signal_text": f"最終応答 {format_age_ja(age)}" if age is not None else None,
                 "alerts": [_alert_payload(a, decorate_alert) for a in tool_alerts],
+                "last_failure": last_failure(seen_by_tool.get(entry.tool_id, ()), now, at=at),
                 "search": f"{entry.display_name} {entry.tool_id} {entry.category.value} {entry.transport.value}".lower(),
             }
         )

@@ -10,7 +10,10 @@
  * ダッシュボードの動きは、次の2種類だけ(@keyframesもこの2つだけ。tests/test_dashboard_overview.pyで検査):
  *   1. 出入り  hub-enter : 現れるときの「薄い→はっきり + 少し動く」。初回表示のスタッガー、トースト、
  *                          一覧↔オフィスの切り替え(押し出し)。ドロワーは同じ意味のtransition。
- *   2. 脈動    hub-pulse : 要対応(警告・停止)の記号と、確認中(スケルトン)の、ゆっくりした明滅。
+ *   2. 脈動    hub-pulse : 要対応(警告・停止)の記号は、現れたときに2回だけ。確認中(スケルトン)だけが、
+ *                          「いま確認している」ことを示す意味のある動きなので、確認が終わるまで続く(無限ループはこれだけ)。
+ * 操作の手応え(2026-11-17): ボタンを押した瞬間(transitionの縮み)、状態ピルが切り替わったとき・一括起動の
+ *   各ステップが完了したときの小さな弾み(.pop = hub-enter の拡大つき版)。どれも1回きり・transformとopacityだけ。
  * 例外: 空状態の蜂の巣(ASCII)はJS描画。要対応が無いとき(=脈動が無いとき)だけ出る。
  *        404ページの歩く人物(wander)は別画面。
  * 取り下げた動き: 紙吹雪(→ 解消はトースト)、人物のタイプ/手を振る(→ 静止ポーズ + 脈動)、
@@ -20,7 +23,7 @@
 @keyframes hub-enter {
   from {
     opacity: 0;
-    transform: translate(var(--enter-x, 0), var(--enter-y, 6px));
+    transform: translate(var(--enter-x, 0), var(--enter-y, 6px)) scale(var(--enter-scale, 1));
   }
   to {
     opacity: 1;
@@ -44,7 +47,13 @@
 .office-warn .monitor-glyph,
 .office-down .monitor-glyph,
 .skeleton {
-  animation: hub-pulse 2.4s ease-in-out infinite;
+  animation: hub-pulse 1.6s ease-in-out 2;
+}
+
+/* 無限に続けるのは、確認中(スケルトン)だけ。「まだ確認している最中」という、いま実行中の意味があるため */
+.skeleton {
+  animation-iteration-count: infinite;
+  animation-duration: 2.4s;
 }
 
 /* 出入り: 初回表示のスタッガー(そのタブで最初の1回だけ。JSがクラスを付けて、終わったら外す) */
@@ -58,6 +67,28 @@
   --enter-x: 14px;
   --enter-y: 0;
   animation: hub-enter 0.28s ease-out both;
+}
+
+/* 操作の手応え: ボタンを押した瞬間にわずかに縮む(150ms。離すと戻る) */
+.btn-reload,
+.chip {
+  transition: transform 150ms ease-out;
+}
+
+.btn-reload:not(:disabled):active,
+.chip:active {
+  transform: scale(0.96);
+}
+
+/* 操作の手応え: 状態が切り替わった印・完了の印。JS が .pop を付けて、終わったら外す(1回きり、約220ms) */
+.pop,
+.steps li[data-step="done"] .steps-glyph,
+.steps li[data-step="failed"] .steps-glyph {
+  display: inline-block;
+  --enter-x: 0;
+  --enter-y: 0;
+  --enter-scale: 0.8;
+  animation: hub-enter 0.22s ease-out both;
 }
 
 /* ---------------------------------------------------------------- 小さな共通部品 */
@@ -187,6 +218,18 @@ kbd {
 .skeleton-line {
   width: 44px;
   height: 10px;
+}
+
+/* 最後の失敗(リポジトリの行。1行だけ・無ければ出さない) */
+.repo-fail {
+  margin-top: 4px;
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--state-danger-text);
 }
 
 /* ---------------------------------------------------------------- ステップインジケーター(すべて起動の進行) */

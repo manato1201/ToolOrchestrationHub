@@ -76,6 +76,23 @@ def test_only_the_two_budgeted_keyframes_exist_plus_the_404_walker():
     assert names == {"hub-enter", "hub-pulse", "wander"}
 
 
+def test_only_the_checking_skeleton_loops_forever():
+    """無限ループは「確認中(スケルトン)」だけ。要対応の脈動・404の歩行は有限回(装飾は1回きり)。"""
+    assert "infinite" not in STYLE_CSS
+    infinite_rules = [m for m in re.finditer(r"([^{}]+)\{[^{}]*infinite[^{}]*\}", PARTS_CSS)]
+    assert len(infinite_rules) == 1 and infinite_rules[0].group(1).strip().endswith(".skeleton")
+    assert re.search(r"\.wanderer\s*\{[^}]*animation: wander [\d.]+s ease-in-out 1;", STYLE_CSS)
+
+
+def test_one_shot_pop_and_press_feedback_stay_within_the_motion_budget():
+    """操作の手応えは hub-enter の拡大つき(.pop)とtransitionだけ。新しい@keyframesは足さず、transform/opacityだけ。"""
+    assert "scale(var(--enter-scale, 1))" in PARTS_CSS
+    assert re.search(r"\.btn-reload:not\(:disabled\):active[^{]*\{\s*transform: scale\(0\.96\)", PARTS_CSS)
+    assert "function pop(" in APP_JS and "popChangedStates()" in APP_JS
+    assert APP_JS.count("pop(target)") >= 3  # 起動 / 停止 / まとめて起動の完了
+    assert 'steps li[data-step="done"] .steps-glyph' in PARTS_CSS  # ステップの完了
+
+
 @pytest.mark.parametrize("retired", ["confetti", "office-type", "office-wave", "calm-draw", "calm-breathe", "calm-ring", "calm-check"])
 def test_retired_motions_are_gone_from_css_and_js(retired):
     """紙吹雪・人物のタイプ/手を振る・空状態のチェックの描画/呼吸は、動きの種類が2を超えるため取り下げた。"""

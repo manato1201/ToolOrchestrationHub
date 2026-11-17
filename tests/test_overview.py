@@ -237,3 +237,52 @@ def test_timeline_is_capped_to_the_newest_events():
     assert len(timeline["events"]) == 6
     assert timeline["truncated"] is True
     assert timeline["start"] == timeline["events"][0]["at"]
+
+
+# ---------------------------------------------------------------- 一覧の「最後の失敗」(SYSTEM_MAP G3)
+
+def _failure(overview: dict, tool_id: str):
+    return {t["tool_id"]: t for t in overview["tools"]}[tool_id]["last_failure"]
+
+
+def test_last_failure_shows_open_alert_with_age_and_status():
+    now = datetime.now(timezone.utc)
+    overview = build_overview(
+        [_entry("a")], alerts=[_alert("a", opened=now - timedelta(minutes=5), severity=Severity.CRITICAL)]
+    )
+    failure = _failure(overview, "a")
+    assert failure["status"] == "open" and failure["status_label"] == "未解消"
+    assert failure["ago"] == "5分前" and failure["message"] == "a alert"
+
+
+def test_last_failure_is_none_without_failures_and_ignores_info():
+    now = datetime.now(timezone.utc)
+    overview = build_overview([_entry("a"), _entry("b")], alerts=[_alert("b", opened=now, severity=Severity.INFO)])
+    assert _failure(overview, "a") is None
+    assert _failure(overview, "b") is None
+
+
+def test_last_failure_keeps_resolved_only_within_24_hours():
+    now = datetime.now(timezone.utc)
+    recent = _alert("a", opened=now - timedelta(hours=3), resolved=now - timedelta(hours=1))
+    old = _alert("b", opened=now - timedelta(days=3), resolved=now - timedelta(days=2))
+    overview = build_overview([_entry("a"), _entry("b")], alerts=[recent, old])
+    assert _failure(overview, "a")["status"] == "resolved"
+    assert _failure(overview, "a")["ago"] == "1時間前"  # 解消してからの経過
+    assert _failure(overview, "b") is None
+
+
+def test_last_failure_prefers_open_over_newer_resolved():
+    now = datetime.now(timezone.utc)
+    open_old = _alert("a", opened=now - timedelta(hours=5), alert_id="a:1")
+    resolved_new = _alert("a", opened=now - timedelta(hours=2), resolved=now - timedelta(hours=1), alert_id="a:2")
+    overview = build_overview([_entry("a")], alerts=[open_old, resolved_new])
+    assert _failure(overview, "a")["status"] == "open"
+
+
+def test_last_failure_message_is_shortened_to_one_line():
+    now = datetime.now(timezone.utc)
+    long_alert = _alert("a", opened=now)
+    long_alert.message = "x" * 200 + "\nsecond line"
+    failure = _failure(build_overview([_entry("a")], alerts=[long_alert]), "a")
+    assert len(failure["message"]) <= 72 and failure["message"].endswith("…") and "\n" not in failure["message"]

@@ -113,7 +113,7 @@ from ..alert_store import DEFAULT_DB_PATH, SqliteAlertStore
 from ..alert_view import make_alert_decorator
 from ..health.runner import LivenessMonitor
 from ..notify import default_sink
-from ..overview import build_overview
+from ..overview import build_overview, shorten
 from ..process_launcher import check_command_available, check_target_reachable, is_alive, launch, open_folder, stop
 from ..registry import RegistryError, ToolRegistry
 from ..repo_sync import RepoRegistry, RepoSyncManager
@@ -420,6 +420,12 @@ def create_app(
     app.state.repo_registry = repo_registry
     app.state.repo_sync_manager = repo_sync_manager
 
+    def _launch_message_for_display(message: Optional[str]) -> Optional[str]:
+        """画面とAPI(viewerも読める)へ出す起動失敗の理由。作業ディレクトリの絶対パスは出さない。"""
+        if message and message.startswith("作業ディレクトリが存在しません"):
+            return "作業ディレクトリが存在しません"
+        return message
+
     def _load_launch_rows(entry) -> list[dict]:
         """ユーザー追加要件「個別に起動できるようにしたい」向け。各LaunchTargetの疎通確認結果を
         _launch_check_loopが更新したキャッシュから読むだけ(リクエスト経路でのI/Oを避ける)。
@@ -450,6 +456,7 @@ def create_app(
                     "last_launched_at": history.get(i, {}).get("launched_at"),
                     "last_launched_by": history.get(i, {}).get("launched_by"),
                     "last_launch_ok": history.get(i, {}).get("ok"),
+                    "last_launch_message": _launch_message_for_display(record.get("message")),
                     # ローカルPATH参照のみ(ネットワークI/O無し)のため、キャッシュせずリクエスト
                     # 毎に確認して問題ない(既存のurlopenベースreachable判定とは事情が異なる)。
                     "command_available": check_command_available(target.command),
@@ -457,11 +464,30 @@ def create_app(
             )
         return rows
 
+    def _repo_last_failure(launch_rows: list[dict], sync_error: Optional[str], checked_at: Optional[str]) -> Optional[dict]:
+        """リポジトリ行の「最後の失敗」1行。新しい記録は作らず、launch_history(起動失敗)と同期の結果(エラー)から選ぶ。
+
+        起動に失敗した記録があれば(その後に起動し直して成功すると記録が置き換わるので消える)それを出し、
+        無ければ、git fetch のエラーを出す。何も無ければNone(=画面には何も出さない)。
+        """
+        failed = [r for r in launch_rows if r["last_launch_ok"] is False]
+        if failed:
+            r = max(failed, key=lambda row: row["last_launched_at"] or "")
+            return {
+                "kind": "起動失敗",
+                "text": f"{r['name']}: {shorten(r['last_launch_message'] or '理由は記録されていません', 72)}",
+                "at": r["last_launched_at"],
+            }
+        if sync_error:
+            return {"kind": "取得失敗", "text": shorten(sync_error, 72), "at": checked_at}
+        return None
+
     def _load_repo_rows() -> list[dict]:
         statuses = repo_sync_manager.all_statuses()
         rows = []
         for entry in repo_registry.all():
             status = statuses.get(entry.repo_id)
+            launch_rows = _load_launch_rows(entry)
             rows.append(
                 {
                     "repo_id": entry.repo_id,
@@ -475,8 +501,9 @@ def create_app(
                     "has_local_changes": status.has_local_changes if status else None,
                     "error": status.error if status else None,
                     "can_sync": status.can_sync if status else False,
-                    "launch_targets": _load_launch_rows(entry),
+                    "launch_targets": launch_rows,
                     "launch_note": entry.launch_note,
+                    "last_failure": _repo_last_failure(launch_rows, status.error if status else None, status.checked_at if status else None),
                 }
             )
         return rows

@@ -7,7 +7,8 @@
  * 状態の保持: 並べ替え・絞り込み・表示・選択中のツール・検索語・テーマは localStorage に覚え、
  * 自動更新(ページの再読み込み)をまたいで維持する。localStorageが使えない環境でも動く。
  * 動きは2種類まで(出入り・脈動。parts.css冒頭の「動きの予算」)。ここで足す動きは、スタッガー・トースト・
- * 一覧↔オフィスの押し出しのクラス付けと、空状態の蜂の巣だけ。全て動きを減らす設定で止まる。
+ * 一覧↔オフィスの押し出し・状態が切り替わったときの弾み(pop)のクラス付けと、空状態の蜂の巣だけ。
+ * 全て動きを減らす設定で止まる。無限に続く動きは持たない(蜂の巣も、開いた直後と、触れている間だけ)。
  */
 (() => {
   "use strict";
@@ -189,6 +190,17 @@
     void element.offsetWidth;
     element.classList.add("is-entering");
     const done = () => element.classList.remove("is-entering");
+    element.addEventListener("animationend", done, { once: true });
+    window.setTimeout(done, 500);
+  }
+
+  // 1回きりの小さな弾み(状態の切り替わり・操作の完了)。終わったらクラスを外す。動きを減らす設定では何もしない
+  function pop(element) {
+    if (!element || reducedMotion()) return;
+    element.classList.remove("pop");
+    void element.offsetWidth;
+    element.classList.add("pop");
+    const done = () => element.classList.remove("pop");
     element.addEventListener("animationend", done, { once: true });
     window.setTimeout(done, 500);
   }
@@ -495,9 +507,36 @@
     }
   }
 
+  // ------------------------------------------------------------------ 状態が切り替わったとき(そのタブで前回と違うものだけ、1回弾む)
+  // ツール行の状態ピルと、起動ボタンの 稼働中/起動中/停止中。自動更新(再読み込み)の前後を、sessionStorage の控えと比べる。
+  function popChangedStates() {
+    const card = $("#overview-card");
+    const states = {};
+    const targets = {};
+    if (card && card.dataset.mode === "live") {
+      $$(".tool-row[data-tool-id]").forEach((row) => {
+        const key = `tool:${row.dataset.toolId}`;
+        states[key] = row.dataset.state;
+        targets[key] = $(".tool-row-state > *", row);
+      });
+    }
+    $$(".repo-launch-btn[data-launch-state]").forEach((btn) => {
+      const key = `repo:${btn.dataset.repoId}:${btn.dataset.targetIndex}`;
+      states[key] = btn.dataset.launchState;
+      targets[key] = $(".pill", btn);
+    });
+    const previous = parseJson(session.get("hub.states"), null);
+    session.set("hub.states", JSON.stringify({ ...(previous || {}), ...states }));
+    if (!previous) return;
+    for (const [key, value] of Object.entries(states)) {
+      if (key in previous && previous[key] !== value) pop(targets[key]);
+    }
+  }
+
   applyOverviewState();
   renderRestoreButton();
   staggerOnce();
+  popChangedStates();
 
   // ------------------------------------------------------------------ 空状態の蜂の巣(ASCII)
   // 各ツール=働き蜂、Hub=巣。正常なツールは巣のまわりを飛び、それ以外(未確認・対象外)は巣で休む。
@@ -584,14 +623,32 @@
     render();
     if (reducedMotion() || flying === 0) return;
 
+    // 無限には動かさない: 開いた直後の数秒と、マウスやフォーカスが触れている間だけ飛ぶ(装飾なので、止まっていて困らない)
+    const ACTIVE_MS = 6000;
+    // 20秒ごとの自動更新(再読み込み)のたびに飛び直さないよう、開いた直後に飛ぶのはそのタブで最初の1回だけ
+    const firstOpen = session.get("hub.hiveFlown") !== "1";
+    session.set("hub.hiveFlown", "1");
+    let activeUntil = firstOpen ? performance.now() + ACTIVE_MS : 0;
     let timer = null;
     let visible = true;
+    const sleep = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+    const wake = () => {
+      activeUntil = performance.now() + ACTIVE_MS;
+      sync();
+    };
+    pre.addEventListener("mouseenter", wake);
     const sync = () => {
-      const shouldRun = visible && !document.hidden;
+      const shouldRun = visible && !document.hidden && performance.now() <= activeUntil;
       if (shouldRun && timer === null) {
         timer = window.setInterval(() => {
           step();
           render();
+          if (performance.now() > activeUntil) sleep();
         }, 150);
       } else if (!shouldRun && timer !== null) {
         window.clearInterval(timer);
@@ -935,6 +992,7 @@
         const body = await res.json();
         if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
         target.textContent = "Started";
+        pop(target);
         window.setTimeout(() => window.location.reload(), 1500);
       } catch (err) {
         target.disabled = false;
@@ -956,6 +1014,7 @@
         const body = await res.json();
         if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
         target.textContent = "Stopped";
+        pop(target);
         window.setTimeout(() => window.location.reload(), 800);
       } catch (err) {
         target.disabled = false;
@@ -1033,6 +1092,7 @@
         target.textContent = originalText;
       } else {
         target.textContent = "Started all";
+        pop(target);
         window.setTimeout(() => window.location.reload(), 1500);
       }
     });

@@ -47,8 +47,11 @@ if ($InstallShortcut) {
     $shell = New-Object -ComObject WScript.Shell
     $sc = $shell.CreateShortcut($lnk)
     $sc.TargetPath = "powershell.exe"
-    $sc.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$target`""
+    $sc.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$target`" -Port $Port"
     $sc.WorkingDirectory = $Root
+    # アイコンは Edge のものにする(既定のままだと PowerShell の青いアイコンになり、タスクバーで見分けにくい)
+    $edgeForIcon = Find-Edge
+    if ($edgeForIcon) { $sc.IconLocation = "$edgeForIcon,0" }
     $sc.Description = "ToolOrchestrationHub を起動して開く"
     $sc.Save()
     Write-Host "created: $lnk"
@@ -75,6 +78,7 @@ if ($running) {
   Write-Host "Hub is up: $Url"
 }
 
+Write-Host "(To stop the Hub, close its minimized console window. Closing the app window leaves the Hub running.)"
 if ($NoWindow) { return }
 $edge = Find-Edge
 if ($DryRun) {

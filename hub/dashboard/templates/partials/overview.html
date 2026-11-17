@@ -53,6 +53,8 @@
             <span class="tool-row-state">{% if t.checking %}{{ checking_pill() }}{% else %}{{ state_pill(t.state, t.state_label, t.state_glyph) }}{% endif %}</span>
             <span class="tool-row-sub">{{ t.category_label }} · {{ t.transport }}</span>
             <span class="tool-row-metric num">{% if t.checking %}<span class="skeleton skeleton-line" aria-hidden="true"></span>{% else %}{{ t.latency_text or t.last_signal_text or "—" }}{% endif %}</span>
+            {#- 最後の失敗(あれば1行だけ。無ければ何も出さない)。ヘルスチェックの失敗もアラートとして集約済み -#}
+            {% if t.last_failure %}<span class="tool-row-fail is-{{ t.last_failure.status }}" title="{{ t.last_failure.message }}"><span aria-hidden="true">{{ t.last_failure.severity_glyph }}</span> 最後の失敗 {{ t.last_failure.ago }} · {{ t.last_failure.status_label }}: {{ t.last_failure.message }}</span>{% endif %}
           </button>
         </li>
         {% endfor %}

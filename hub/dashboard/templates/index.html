@@ -10,6 +10,7 @@
   <noscript><meta http-equiv="refresh" content="{{ refresh_interval_s }}"></noscript>
   {% endif %}
   <title>ToolOrchestrationHub</title>
+  {% include "partials/_head_icon.html" %}
   <script>try{var t=localStorage.getItem("hub.theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;}}catch(e){}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -203,7 +204,10 @@
           <tbody>
             {% for r in repo_rows %}
             <tr class="table-search-row" data-search="{{ (r.display_name ~ ' ' ~ r.remote_url ~ ' ' ~ r.branch)|lower }}">
-              <td><strong>{{ r.display_name }}</strong><br><span class="source-meta">{{ r.remote_url }}</span></td>
+              <td><strong>{{ r.display_name }}</strong><br><span class="source-meta">{{ r.remote_url }}</span>
+                {#- 最後の失敗(あれば1行だけ。起動の失敗 → 無ければ取得の失敗。何も無ければ出さない) -#}
+                {% if r.last_failure %}<div class="repo-fail" title="{{ r.last_failure.text }}"><span aria-hidden="true">■</span> 最後の失敗: {{ r.last_failure.kind }}{% if r.last_failure.at %} <span class="num">{{ r.last_failure.at[5:16] }}</span>{% endif %} — {{ r.last_failure.text }}</div>{% endif %}
+              </td>
               <td>{{ r.branch }}</td>
               <td>
                 {% if r.error %}
@@ -228,7 +232,7 @@
                   </div>
                   {% for lt in r.launch_targets %}
                     <div class="op-row">
-                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" type="button">
+                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" data-launch-state="{{ lt.state }}" type="button">
                         Start: {{ lt.name }}
                         {#- 状態は 3 つ(記号と文字を併記): 稼働中 / 起動中 / 停止中 -#}
                         {% if lt.state == "running" %}<span class="pill pill-up">▶ 稼働中</span>
