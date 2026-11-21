@@ -166,3 +166,15 @@ repos:
         cwd: "."
         url: "http://localhost:8000"
     launch_note: "事前にpython -m venv .venv && pip install -r requirements.txtでの環境構築が必要。cli.pyは1回限りの変換用CLIで常駐サービスではない。"
+
+  - repo_id: local_llm_harness
+    display_name: "LocalLLMHarness"
+    local_path: "../LocalLLMHarness"
+    remote_url: "https://github.com/manato1201/LocalLLMHarness.git"
+    branch: main
+    launch:
+      - name: "窓口(OpenAI 互換)"
+        command: "uv run llh serve"
+        cwd: "."
+        url: "http://127.0.0.1:8800/health"
+    launch_note: "事前に uv sync、config.toml / policy.toml の作成、環境変数 LLH_BACKEND_API_KEY(Unsloth の API キー)が必要。Hub から起動すると、Hub の環境変数を引き継ぐので、setx で保存したキーが要る(Hub を再起動してから)。Unsloth Desktop は別に起動しておく。"

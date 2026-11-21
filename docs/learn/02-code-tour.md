@@ -16,7 +16,7 @@
 | `auth.py`・`auth_routes.py` | 350・110 | API キー・役割・Cloudflare Access・ログイン画面 | ⑩ |
 | `audit.py` | 115 | 監査ログ(JSON Lines)のミドルウェアと読み出し | ⑩ |
 | `notify.py` | 190 | 通知先(Windows トースト・Slack)と、まとめ役 | |
-| `repo_sync.py`・`repos.yaml` | 295 | 13 リポジトリの `git fetch` / `pull --ff-only`、起動コマンドの定義 | |
+| `repo_sync.py`・`repos.yaml` | 295 | 14 リポジトリの `git fetch` / `pull --ff-only`、起動コマンドの定義 | |
 | `process_launcher.py` | 140 | 起動(新しいコンソール窓)・フォルダを開く・疎通確認 | |
 | `alert_priority.py`・`alert_view.py`・`alert_history.py` | 100・75・75 | 見る順番の補助・画面用の飾り・履歴スライダーの下ごしらえ | |
 | `runbooks.py`・`runbooks.yaml` | 115 | アラート種別ごとの運用手順書 | |

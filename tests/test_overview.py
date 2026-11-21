@@ -176,10 +176,10 @@ def test_overview_scales_to_twenty_tools_without_changing_shape():
     assert all(t["color"].startswith("#") for t in overview["tools"])
 
 
-def test_shipped_registry_builds_an_overview_for_all_12_tools_with_isolation_labels():
+def test_shipped_registry_builds_an_overview_for_all_13_tools_with_isolation_labels():
     registry = ToolRegistry.load()
     overview = build_overview(registry.all(), alerts=[], results={})
-    assert len(overview["tools"]) == 12
+    assert len(overview["tools"]) == 13
     assert all(t["isolation_label"] != "未設定" for t in overview["tools"])
 
 

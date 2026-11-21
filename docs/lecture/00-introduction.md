@@ -11,7 +11,7 @@
 
 ## 1. 解きたい問題
 
-自作のツールは、増えていきます。このリポジトリの台帳には、いま **12 個**が載っています(RAG の橋渡し・音のミドルウェア・CI で回る収集ツールなど)。
+自作のツールは、増えていきます。このリポジトリの台帳には、いま **13 個**が載っています(RAG の橋渡し・音のミドルウェア・CI で回る収集ツールなど)。
 増えると、次のことが分からなくなります。
 
 - どのツールが、**いま動いている**のか。
@@ -87,15 +87,15 @@ print("monitored:", sorted(e.tool_id for e in registry.monitored()))
 
 ```text
 # 出力
-台帳の件数: 12
-monitored 6
+台帳の件数: 13
+monitored 7
 observed_only 5
 excluded 1
-monitored: ['asset_data_insight_suite', 'dev_rag_environment', 'profiling_tool', 'research_collector', 'the_algorithm_illustrated', 'visual_regression_qa_tool']
+monitored: ['asset_data_insight_suite', 'dev_rag_environment', 'local_llm_harness', 'profiling_tool', 'research_collector', 'the_algorithm_illustrated', 'visual_regression_qa_tool']
 ```
 
 - `monitored`(Hub が**確認の仕事を持つ**)・`observed_only`(**受動だけ**。Hub からは何も開かない)・`excluded`(台帳には載せるが、監視しない)。
-- `monitored` の 6 件の中にも、**能動**(`http_bridge_check`: `dev_rag_environment`・`profiling_tool`)と、**CI の最終成功からの経過時間だけ**(`ci_pipeline_check`: 残りの 4 件)があります。次回以降で見ます。
+- `monitored` の 7 件の中にも、**能動**(`http_bridge_check`: `dev_rag_environment`・`local_llm_harness`・`profiling_tool`)と、**CI の最終成功からの経過時間だけ**(`ci_pipeline_check`: 残りの 4 件)があります。次回以降で見ます。
 
 ## 5. 読み方の地図
 

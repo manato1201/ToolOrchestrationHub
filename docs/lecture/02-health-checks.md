@@ -108,7 +108,7 @@ async def http_bridge_check(endpoint: str, timeout_s: float = 3.0) -> HealthResu
         return HealthResult(is_up=False, latency_ms=None)
 ```
 
-- **`async def`**: 通信の待ち時間に、他のことを進められる(Hub は 12 個を順番に待たない)。
+- **`async def`**: 通信の待ち時間に、他のことを進められる(Hub は 13 個を順番に待たない)。
 - **`httpx.RequestError` だけを捕まえる**: つながらない・時間切れは「停止」。それ以外(コードのバグ)は、握りつぶさず**表に出す**。
 - 応答が **200 以外**(404・500)でも `is_up=False`(「何か返ってきた」だけでは、正常とは言わない)。
 

@@ -13,7 +13,7 @@ from hub.registry import ToolRegistry
 def test_load_registry_status_mirrors_all_entries_without_recomputation():
     registry = ToolRegistry.load()
     rows = data_sources.load_registry_status(registry)
-    assert len(rows) == 12
+    assert len(rows) == 13
     for row in rows:
         assert row["is_up"] is None  # monitorなしなら未取得のまま。ここで新規判定はしない
 

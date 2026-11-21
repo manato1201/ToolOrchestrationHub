@@ -250,6 +250,30 @@ tools:
       timeout_s: 3.0
       trace_summary_path: "data/profiling_tool/trace_summary.json"
 
+  # 13. LocalLLMHarness — ローカルLLM(Unsloth Desktop)の窓口(2026-11-21 追加)
+  #     機密度の判定・モデルの振り分け・監査ログ。/health は未認証で、窓口が生きていれば 200 を返す。
+  #     注意: 窓口が生きていれば、Unsloth が止まっていても 200(中身の backend: "up"|"down" で伝える)。
+  #     Hub は 200 だけを見るので、Unsloth の死活までは映らない。LLH_TOKEN を付けると /health も 401 になり、監視が通らない。
+  - tool_id: local_llm_harness
+    display_name: "LocalLLMHarness"
+    symbol: "Lh"
+    color: "#5c5c5c"
+    transport: http_bridge
+    endpoint: "http://127.0.0.1:8800/health"
+    health_check: http_bridge_check
+    category: monitored
+    isolation: none           # ホスト上のローカル窓口(127.0.0.1 のみ待ち受け)
+    description: "ローカルLLM(Unsloth Desktop)の窓口。機密度の判定・モデルの振り分け・監査ログ。"
+    todo:
+      - "窓口は、使うときだけ起動する想定。止めている間は「停止」になり、通知が出る。常用しないなら category を見直す"
+      - "Unsloth(:8888)の死活は、この監視には映らない(/health の backend の値を Hub が見ていない)"
+    owner_rules:
+      - "窓口は 1 度に 1 リクエストだけ通す(VRAM 8GB)。同じ GPU の重い作業(Houdini の ML 学習など)と同時に動かさない"
+      - "Hub が叩くのは未認証の /health のみ(トークンを付けた場合は、/health にも要る)"
+    poll_interval_s: 30
+    check_params:
+      timeout_s: 3.0
+
   # --- 構想段階のため台帳には載せていないもの ---
   # TransferKit(仮) — Houdini ⇔ エンジンの受け渡し検査(IMPROVEMENT_PLAN H5)。
   # まだ実装も health の契約も存在しない。いま載せると死活監視が常時 down になり、誤アラートと

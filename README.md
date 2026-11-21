@@ -1,7 +1,7 @@
 # ToolOrchestrationHub
 
 今まで作ってきたシステム・機能を**中継・モニタリング**し、使用者にとって使いやすくするための**監視の中継所**です。
-12 個のツールの**生死・アラート**と、13 個のリポジトリの**git の状態**を、1 つの画面と通知に集めます。**見るだけ**で、ツールの権限は奪いません。
+13 個のツールの**生死・アラート**と、14 個のリポジトリの**git の状態**を、1 つの画面と通知に集めます。**見るだけ**で、ツールの権限は奪いません。
 
 ![構成図](docs/diagrams/architecture.svg)
 
@@ -10,7 +10,7 @@
 | 項目 | 内容 |
 |---|---|
 | 版 | v2.7(認証・役割・監査ログ。経緯は [変更履歴](docs/reference/changelog.md)) |
-| 台帳 | 12 ツール(`hub/registry.yaml`)・13 リポジトリ(`hub/repos.yaml`) |
+| 台帳 | 13 ツール(`hub/registry.yaml`)・14 リポジトリ(`hub/repos.yaml`) |
 | テスト | `uv run pytest -q` で全部通る(Hub 本体 + `profiling_tool` + 文書の検査) |
 | 画面の確認 | 実ブラウザは **Chrome のみ**。Firefox・Safari・スマホ実機は**未確認** |
 | 認証 | 既定は**なし**(`HUB_AUTH=off`。Host・Origin の検査だけ)。複数人なら `HUB_AUTH=required` |

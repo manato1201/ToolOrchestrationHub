@@ -6,9 +6,9 @@ import pytest
 from hub.registry import RegistryError, ToolCategory, ToolRegistry, TransportKind
 
 
-def test_all_12_entries_load_without_error():
+def test_all_13_entries_load_without_error():
     registry = ToolRegistry.load()
-    assert len(registry.all()) == 12
+    assert len(registry.all()) == 13
 
 
 def test_transport_matches_inventory_table():
