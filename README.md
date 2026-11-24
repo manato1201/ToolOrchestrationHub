@@ -26,6 +26,8 @@ uv run hub          # http://127.0.0.1:8790 でダッシュボードを起動
 
 **ダブルクリックで開く**(2026-11-17): `Start-Hub.cmd`(または `tools/start_hub.ps1`)が、Hub を起動して(動いていれば起動し直さず)、Edge のアプリ窓(アドレスバーの無い専用ウィンドウ)で開きます。デスクトップへのショートカットは `tools/start_hub.ps1 -InstallShortcut` で作れます(付けなければ何も作りません)。Hub を終わらせるときは、最小化されたコンソールを閉じます。
 
+**Unsloth とセットで開く**(2026-11-24): `tools/start_hub.ps1 -InstallShortcut -WithUnsloth` で、デスクトップに「ToolOrchestrationHub + Unsloth」のショートカットを作れます。このアイコンを開くと、Hub を開き、Unsloth Desktop を開き(開いていれば何もしない)、LocalLLMHarness の `llh autostart`(見張り)を非表示で起動します。見張りが、Unsloth の起動を見て、窓口と、LocalLLMHarness の `config.toml` に書いたサービス(ChapterLens のエンジンなど)を自動で起動し、Unsloth を閉じると、起動したものを止めます。Unsloth Desktop や LocalLLMHarness が見つからなければ、その分だけ飛ばして、Hub は開きます。**事前に**: LocalLLMHarness の `config.toml` の `[autostart]`(説明は LocalLLMHarness の README)と、`LLH_BACKEND_API_KEY`(`setx` で保存)が要ります。Hub の「リポジトリ」の LocalLLMHarness の行の「見張り(Unsloth とセット)」でも、同じ見張りを起動できます。**実機の Unsloth Desktop では未確認**(`-DryRun` の表示と、偽の Unsloth での見張りの動作だけ確認)。
+
 **起動と停止**(2026-11-17): 各ツールの行の `Start` で起動し、`Stop` で止めます。状態は 3 つ(▶ 稼働中 / … 起動中 / ■ 停止中)。**止められるのは、この Hub が起動したものだけ**です(起動時に記録した PID の、コマンドプロセッサと子プロセス。Hub の外で起動したものや、PID が別のプロセスに使い回されたものは止めません)。ログの収集・自動再起動は、引き続きしません。
 
 ```bash

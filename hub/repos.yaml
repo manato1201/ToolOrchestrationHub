@@ -177,4 +177,9 @@ repos:
         command: "uv run llh serve"
         cwd: "."
         url: "http://127.0.0.1:8800/health"
+      - name: "見張り(Unsloth とセット)"
+        command: "uv run llh autostart"
+        cwd: "."
+        # Unsloth Desktop の起動を見て、窓口と、LocalLLMHarness の config.toml の [[autostart.service]](例: ChapterLens のエンジン)を自動で起動する。
+        # 上の「窓口」を単独で起動するより、こちらを使う(Unsloth を閉じると、起動したものも止まる)。urlは無し(常駐ポートを持たない)。
     launch_note: "事前に uv sync、config.toml / policy.toml の作成、環境変数 LLH_BACKEND_API_KEY(Unsloth の API キー)が必要。Hub から起動すると、Hub の環境変数を引き継ぐので、setx で保存したキーが要る(Hub を再起動してから)。Unsloth Desktop は別に起動しておく。"

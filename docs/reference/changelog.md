@@ -338,3 +338,8 @@ HUB_AUTH=required uv run hub
 - **監査ログ**(`HUB_AUDIT_LOG`。既定 `~/.tool_orchestration_hub/audit.jsonl`・JSON Lines): **変更系(POST など)**・**拒否(401・403)**・ログイン・ログアウトを、時刻・名前・役割・方式・パス・結果・IP で残す。**本文・キー・クッキー・クエリは記録しない**。読み取りは記録しない。admin だけ `GET /api/auth/audit?limit=100`。
 - **管理画面の分離(2026-11-11)**: registry の再読み込みと同期(`git pull`)は、ダッシュボードのボタンではなく**別ページ `/admin`(+別スクリプト `/admin.js`)**に移した。サーバーが admin に限る(未ログインは `/login` へ・viewer / operator は 403。拒否は監査ログに載る)。`admin.js` は `/static` の外に置き、viewer / operator には配らない。ダッシュボード(`/`・`/static/app.js`)は読み取りと operator の操作だけ。admin 以外には「管理画面 →」のリンクも出さない(表示だけで、判断はサーバー)。`HUB_AUTH=off` のときは従来どおり誰でも開ける。
 - 依存: `pyjwt[crypto]`。
+
+## 2026-11-24: Unsloth とセットの起動
+
+- `tools/start_hub.ps1 -WithUnsloth`: Hub のあとに Unsloth Desktop を開き、`llh autostart`(LocalLLMHarness の見張り)を非表示で起動する。`-InstallShortcut -WithUnsloth` で、「ToolOrchestrationHub + Unsloth」のショートカットを作る。見つからないものは飛ばす。`-DryRun` で、やることだけ表示(テスト `tests/test_start_hub.py`)。
+- `hub/repos.yaml`: LocalLLMHarness に「見張り(Unsloth とセット)」(`uv run llh autostart`)を足した。
