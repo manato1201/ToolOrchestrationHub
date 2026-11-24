@@ -981,20 +981,84 @@
     });
   }
 
+  // 起動したあと、URL に届いたら新しいタブで開く(2026-11-24)。
+  // ポップアップブロックを避けるため、タブはクリックの瞬間(同期)に開き、届いたらそこへ移す。
+  // 開けなかった・待ちきれなかったときは、行に出している URL のリンクから開ける。
+  const OPEN_WAIT_MS = 90000;
+  const OPEN_POLL_MS = 1000;
+
+  function prepareTab(btn) {
+    if (btn.dataset.autoOpen !== "true" || !btn.dataset.url) return null;
+    let tab = null;
+    try {
+      tab = window.open("about:blank", "_blank");
+      if (tab) {
+        tab.opener = null;
+        tab.document.title = btn.dataset.targetName || "起動中";
+        const msg = tab.document.createElement("p");
+        msg.textContent = `${btn.dataset.targetName || "ツール"} の起動を待っています…(最大 90 秒)`;
+        tab.document.body.appendChild(msg);
+      }
+    } catch (err) {
+      tab = null;
+    }
+    return tab;
+  }
+
+  async function waitReachable(btn, onTick) {
+    const started = Date.now();
+    while (Date.now() - started < OPEN_WAIT_MS) {
+      try {
+        const res = await fetch(`/api/repos/${btn.dataset.repoId}/launch/${btn.dataset.targetIndex}/reachable`);
+        if (res.ok && (await res.json()).reachable === true) return true;
+      } catch (err) {
+        // Hub への問い合わせの一時的な失敗は、待ちを続ける
+      }
+      if (onTick) onTick(Math.round((Date.now() - started) / 1000));
+      await new Promise((resolve) => window.setTimeout(resolve, OPEN_POLL_MS));
+    }
+    return false;
+  }
+
+  // 起動に成功したあとの共通の流れ。戻り値: "opened"(開いた)/ "timeout"(届かなかった・開けなかった)/ "no-open"(自動では開かない)
+  async function openWhenReady(btn, tab, onTick) {
+    if (btn.dataset.autoOpen !== "true" || !btn.dataset.url) return "no-open";
+    const ready = await waitReachable(btn, onTick);
+    if (ready) {
+      if (tab && !tab.closed) {
+        tab.location.href = btn.dataset.url;
+        return "opened";
+      }
+      // タブを先に開けなかった(ブロックされた)場合は、いま開く。これも止められたら、行の URL から開く
+      const late = window.open(btn.dataset.url, "_blank", "noopener");
+      return late ? "opened" : "timeout";
+    }
+    if (tab && !tab.closed) tab.close();
+    return "timeout";
+  }
+
   $$(".repo-launch-btn").forEach((btn) => {
     const originalText = btn.textContent;
     btn.addEventListener("click", async (event) => {
       const target = event.currentTarget;
       target.disabled = true;
       target.textContent = "Starting...";
+      const tab = prepareTab(target);
       try {
         const res = await fetch(`/api/repos/${target.dataset.repoId}/launch/${target.dataset.targetIndex}`, { method: "POST" });
         const body = await res.json();
         if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
         target.textContent = "Started";
         pop(target);
-        window.setTimeout(() => window.location.reload(), 1500);
+        const outcome = await openWhenReady(target, tab, (sec) => {
+          target.textContent = `Waiting... ${sec}s`;
+        });
+        if (outcome === "timeout") {
+          window.alert("起動はしましたが、URL をタブで開けませんでした(まだ届いていない・または、ブロックされました)。行に出ている URL から、開いてください。");
+        }
+        window.location.reload();
       } catch (err) {
+        if (tab && !tab.closed) tab.close();
         target.disabled = false;
         target.textContent = originalText;
         window.alert(`起動に失敗しました: ${err}`);
@@ -1047,6 +1111,9 @@
       const launchButtons = $$(`.repo-launch-btn[data-repo-id="${repoId}"]`);
       target.disabled = true;
       target.textContent = "Starting all...";
+      // 自動で開く対象のうち、先頭の 1 つだけ、クリックの瞬間にタブを開く(ブロックされにくい)。残りは、届いたら開く(止められたら URL のリンクから)
+      const firstAuto = launchButtons.findIndex((b) => b.dataset.autoOpen === "true" && b.dataset.url);
+      const tabs = launchButtons.map((b, i) => (i === firstAuto ? prepareTab(b) : null));
 
       const previous = target.parentElement.querySelector(".steps");
       if (previous) previous.remove();
@@ -1088,12 +1155,29 @@
       }
       if (failedCount > 0) {
         // 失敗は、ステップに残したまま、ダイアログで遮らない(どれが失敗したか見える)
+        tabs.forEach((t) => { if (t && !t.closed) t.close(); });
         target.disabled = false;
         target.textContent = originalText;
       } else {
         target.textContent = "Started all";
         pop(target);
-        window.setTimeout(() => window.location.reload(), 1500);
+        let notOpened = 0;
+        for (const [index, launchBtn] of launchButtons.entries()) {
+          const outcome = await openWhenReady(launchBtn, tabs[index], (sec) => {
+            target.textContent = `Waiting... ${sec}s`;
+          });
+          if (outcome === "timeout") notOpened += 1;
+        }
+        if (notOpened > 0) {
+          // 一括起動は、ダイアログで遮らず、画面に残す(再読み込みもしない。URL は、各行のリンクから開ける)
+          const note = document.createElement("div");
+          note.className = "source-meta op-warn";
+          note.setAttribute("role", "status");
+          note.textContent = "▲ 起動はしましたが、URL をタブで開けなかったものがあります。各行の URL から開いてください。";
+          target.parentElement.appendChild(note);
+        } else {
+          window.location.reload();
+        }
       }
     });
   });

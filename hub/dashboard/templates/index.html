@@ -232,7 +232,7 @@
                   </div>
                   {% for lt in r.launch_targets %}
                     <div class="op-row">
-                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" data-launch-state="{{ lt.state }}" type="button">
+                      <button class="btn-reload repo-launch-btn" data-repo-id="{{ r.repo_id }}" data-target-index="{{ loop.index0 }}" data-target-name="{{ lt.name }}" data-launch-state="{{ lt.state }}" data-auto-open="{{ 'true' if lt.auto_open else 'false' }}" data-url="{{ lt.link_url or '' }}" type="button">
                         Start: {{ lt.name }}
                         {#- 状態は 3 つ(記号と文字を併記): 稼働中 / 起動中 / 停止中 -#}
                         {% if lt.state == "running" %}<span class="pill pill-up">▶ 稼働中</span>
@@ -245,6 +245,13 @@
                       </button>
                       {% elif lt.state == "running" %}
                       <div class="source-meta">Hubの外で起動されているため、ここからは止められません</div>
+                      {% endif %}
+                      {#- URL は、起動していなくても表示する(自動で開けなかったときも、ここから開ける) -#}
+                      {% if lt.link_url %}
+                      <div class="source-meta op-url">
+                        <span aria-hidden="true">↗</span> <a href="{{ lt.link_url }}" target="_blank" rel="noopener noreferrer">{{ lt.link_url }}</a>
+                        {% if lt.auto_open %}<span class="op-url-note">(Start で自動で開きます)</span>{% endif %}
+                      </div>
                       {% endif %}
                       {% if lt.command_available is sameas false %}
                       <div class="source-meta op-warn">

@@ -37,7 +37,7 @@ def test_rpc_is_down_after_two_intervals():
     assert rpc_check("t", now - 25, 10.0).is_up is False   # 25 秒前 > 10 × 2
 ```
 
-**2. 外へ出る処理を、差し替える**(`monkeypatch`・`popen=`・`is_command_available=`)。本物の `git`・本物の起動をしない。`tests/conftest.py` の `no_real_repo_sync` を使うと、`create_app()` が 14 リポジトリへ `git fetch` しない。
+**2. 外へ出る処理を、差し替える**(`monkeypatch`・`popen=`・`is_command_available=`)。本物の `git`・本物の起動をしない。`tests/conftest.py` の `no_real_repo_sync` を使うと、`create_app()` が 15 リポジトリへ `git fetch` しない。
 
 **3. `TestClient` で、サーバーを起動せずに API を叩く**
 

@@ -343,3 +343,10 @@ HUB_AUTH=required uv run hub
 
 - `tools/start_hub.ps1 -WithUnsloth`: Hub のあとに Unsloth Desktop を開き、`llh autostart`(LocalLLMHarness の見張り)を非表示で起動する。`-InstallShortcut -WithUnsloth` で、「ToolOrchestrationHub + Unsloth」のショートカットを作る。見つからないものは飛ばす。`-DryRun` で、やることだけ表示(テスト `tests/test_start_hub.py`)。
 - `hub/repos.yaml`: LocalLLMHarness に「見張り(Unsloth とセット)」(`uv run llh autostart`)を足した。
+
+## 2026-11-24: URL の表示・自動で開く・ChapterLens の起動と停止
+
+- `hub/repos.yaml` の `launch:` に、任意の `open`(既定 `true`)を足した。`true` の対象は、`Start` のあと URL に届いたら、ブラウザの新しいタブで自動で開く。画面の無いもの(ヘルスチェック・API)は `open: false`(WeatherGeoBridge の Worker・VisualRegressionQATool の Backend・CADGPUInferenceModeling・LocalLLMHarness の窓口・ChapterLens のエンジン)。
+- 画面: 起動する対象の URL を、行にリンクで出す(`http(s)` だけ)。`Start` はクリックの瞬間にタブを開き(ブロック回避)、`GET /api/repos/{repo_id}/launch/{n}/reachable` を 1 秒おき・最大 90 秒で確かめ、届いたらそのタブを URL へ移す。開けなかった・届かなかったときは、ダイアログ(`Start all` は画面内の注記)で知らせる。URL はリクエストから受け取らず、`repos.yaml` の固定値だけ。
+- `hub/repos.yaml`: ChapterLens を 15 件目に足した(`Start: エンジン(ローカル)`・`Stop`)。
+- 実ブラウザで確認(ダミーの Web GUI を、4 秒遅れで起動する対象にして): `Start` → 新しいタブが即座に開いて待機 → 届いたら URL へ移った。`open: false` の対象は、タブが開かなかった。

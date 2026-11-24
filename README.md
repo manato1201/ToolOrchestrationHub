@@ -1,7 +1,7 @@
 # ToolOrchestrationHub
 
 今まで作ってきたシステム・機能を**中継・モニタリング**し、使用者にとって使いやすくするための**監視の中継所**です。
-13 個のツールの**生死・アラート**と、14 個のリポジトリの**git の状態**を、1 つの画面と通知に集めます。**見るだけ**で、ツールの権限は奪いません。
+13 個のツールの**生死・アラート**と、15 個のリポジトリの**git の状態**を、1 つの画面と通知に集めます。**見るだけ**で、ツールの権限は奪いません。
 
 ![構成図](docs/diagrams/architecture.svg)
 
@@ -10,7 +10,7 @@
 | 項目 | 内容 |
 |---|---|
 | 版 | v2.7(認証・役割・監査ログ。経緯は [変更履歴](docs/reference/changelog.md)) |
-| 台帳 | 13 ツール(`hub/registry.yaml`)・14 リポジトリ(`hub/repos.yaml`) |
+| 台帳 | 13 ツール(`hub/registry.yaml`)・15 リポジトリ(`hub/repos.yaml`) |
 | テスト | `uv run pytest -q` で全部通る(Hub 本体 + `profiling_tool` + 文書の検査) |
 | 画面の確認 | 実ブラウザは **Chrome のみ**。Firefox・Safari・スマホ実機は**未確認** |
 | 認証 | 既定は**なし**(`HUB_AUTH=off`。Host・Origin の検査だけ)。複数人なら `HUB_AUTH=required` |
@@ -29,6 +29,10 @@ uv run hub          # http://127.0.0.1:8790 でダッシュボードを起動
 **Unsloth とセットで開く**(2026-11-24): `tools/start_hub.ps1 -InstallShortcut -WithUnsloth` で、デスクトップに「ToolOrchestrationHub + Unsloth」のショートカットを作れます。このアイコンを開くと、Hub を開き、Unsloth Desktop を開き(開いていれば何もしない)、LocalLLMHarness の `llh autostart`(見張り)を非表示で起動します。見張りが、Unsloth の起動を見て、窓口と、LocalLLMHarness の `config.toml` に書いたサービス(ChapterLens のエンジンなど)を自動で起動し、Unsloth を閉じると、起動したものを止めます。Unsloth Desktop や LocalLLMHarness が見つからなければ、その分だけ飛ばして、Hub は開きます。**事前に**: LocalLLMHarness の `config.toml` の `[autostart]`(説明は LocalLLMHarness の README)と、`LLH_BACKEND_API_KEY`(`setx` で保存)が要ります。Hub の「リポジトリ」の LocalLLMHarness の行の「見張り(Unsloth とセット)」でも、同じ見張りを起動できます。**実機の Unsloth Desktop では未確認**(`-DryRun` の表示と、偽の Unsloth での見張りの動作だけ確認)。
 
 **起動と停止**(2026-11-17): 各ツールの行の `Start` で起動し、`Stop` で止めます。状態は 3 つ(▶ 稼働中 / … 起動中 / ■ 停止中)。**止められるのは、この Hub が起動したものだけ**です(起動時に記録した PID の、コマンドプロセッサと子プロセス。Hub の外で起動したものや、PID が別のプロセスに使い回されたものは止めません)。ログの収集・自動再起動は、引き続きしません。
+
+**URL の表示と、自動で開く**(2026-11-24): 起動する対象に `url` があれば、行にリンクとして出します(止まっていても出るので、あとからでも開けます)。Web 画面のある対象(`open` を省いたもの)は、`Start` を押すと、ブラウザの**新しいタブを先に開いて待ち**、URL に届いたら(最大 90 秒)そこへ移ります。画面の無い対象(ヘルスチェック・API。`hub/repos.yaml` で `open: false`)は、タブを開かず、URL の表示だけです。タブを開けなかった(ブロックされた)・90 秒たっても届かなかったときは、その旨を出すので、行の URL から開いてください。`Start all` は、自動で開く対象のうち**先頭の 1 つ**だけ、タブを先に開きます(残りは届いたら開き、ブロックされたら行の URL から)。表示するのは `http://` `https://` の URL だけです。
+
+**ChapterLens の起動・停止**(2026-11-24): 「リポジトリ」に ChapterLens を足しました(15 件目)。`Start: エンジン(ローカル)` で、Chrome 拡張の相手(`uv run python -m chapterlens serve`。拡張の固定の ID だけを許可、`127.0.0.1:8787`)を起動し、`Stop` で止めます。止められるのは**この Hub が起動したものだけ**です。Unsloth とセットの `llh autostart` が起動したエンジンは、Hub の外で起動したものなので、ここからは止められません(Unsloth を閉じると止まります)。題名・大見出し(ローカル LLM)を使うなら、先に `uv run python -m chapterlens admin llm on` を一度実行し、窓口も起動しておきます。
 
 ```bash
 # 各ツールからの信号(認証を必須にしたときは X-API-Key を付ける)

@@ -47,6 +47,9 @@ class LaunchTarget:
     command: str  # シェルで実行するコマンド文字列(repos.yaml側で定義済みの固定値のみ)
     cwd: str = "."  # local_pathからの相対パス
     url: Optional[str] = None  # 起動確認(疎通チェック)に使うURL。無ければ確認しない
+    # 起動したあと、このURLをブラウザの新しいタブで自動で開くか(Web GUI向け)。
+    # API・ヘルスチェックだけのもの(例: /health)は false にして、URLの表示だけにする。
+    open: bool = True
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,7 @@ class RepoEntry:
                 command=lt["command"],
                 cwd=lt.get("cwd", "."),
                 url=lt.get("url"),
+                open=bool(lt.get("open", True)),
             )
             for lt in launch_raw
         )

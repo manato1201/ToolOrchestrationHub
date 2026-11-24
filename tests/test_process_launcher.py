@@ -311,3 +311,40 @@ def test_is_alive_needs_the_same_kind_of_process_that_was_launched(monkeypatch):
     assert is_alive(10, image_name=lambda pid: "chrome.exe") is False  # PIDが別のプロセスに使い回された
     assert is_alive(10, image_name=lambda pid: None) is False
     assert is_alive(None) is False
+
+
+def test_launch_target_opens_the_url_by_default_and_can_opt_out():
+    """open は Web GUI なら既定で true(起動後に自動で開く)。API・ヘルスチェックだけなら open: false。"""
+    entry = RepoEntry.from_dict(
+        {
+            "repo_id": "x",
+            "display_name": "X",
+            "local_path": "../x",
+            "remote_url": "https://example.com/x.git",
+            "launch": [
+                {"name": "GUI", "command": "npm run dev", "url": "http://localhost:3000"},
+                {"name": "API", "command": "uv run api", "url": "http://localhost:8000/health", "open": False},
+            ],
+        }
+    )
+    assert entry.launch_targets[0].open is True
+    assert entry.launch_targets[1].open is False
+
+
+def test_repos_yaml_opens_only_web_screens_and_has_chapterlens():
+    """本物の repos.yaml: 画面の無い対象(ヘルスチェック・API)は自動で開かない。ChapterLens のエンジンを起動・停止できる。"""
+    from hub.repo_sync import RepoRegistry
+
+    registry = RepoRegistry.load()
+    chapterlens = registry.get("chapterlens")
+    assert chapterlens is not None
+    (engine,) = chapterlens.launch_targets
+    assert engine.cwd == "engine" and engine.command.startswith("uv run python -m chapterlens serve")
+    # 拡張(固定の ID)だけを許す。全許可(*)にはしない
+    assert "--allow-origin chrome-extension://" in engine.command and "*" not in engine.command
+    assert engine.url == "http://127.0.0.1:8787/health" and engine.open is False
+
+    for entry in registry.all():
+        for target in entry.launch_targets:
+            if target.url and target.url.rstrip("/").endswith(("/health", "/api/health")):
+                assert target.open is False, f"{entry.repo_id}/{target.name}"

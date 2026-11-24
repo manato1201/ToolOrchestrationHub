@@ -15,7 +15,7 @@
 | `_poll_loop` | **5 秒** | 全ツールの死活監視 → down なら `ingest`、up なら `resolve_by_id` |
 | `_registry_watch_loop` | **5 秒** | `registry.yaml` の更新時刻を見て、変わったら再読込(壊れていれば古いまま) |
 | `_prune_loop` | **1 時間** | 解消してから **30 日**たったアラートを削除 |
-| `_repo_check_loop` | **30 分** | 14 リポジトリを `git fetch`(差分の検知だけ。作業ツリーは変えない) |
+| `_repo_check_loop` | **30 分** | 15 リポジトリを `git fetch`(差分の検知だけ。作業ツリーは変えない) |
 | `_launch_check_loop` | **10 秒** | 各リポジトリの起動先 URL に疎通できるか(Start ボタンの「running」表示用) |
 
 > どのループも、**例外で止まらないよう**囲んであります(1 つのツールの異常で、監視全体を止めない)。ただし、握りつぶすので**原因がログに残らない**点は既知の制約です([6 トラブルと保守](06-troubleshooting-maintenance.md))。

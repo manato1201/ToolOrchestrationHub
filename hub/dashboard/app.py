@@ -426,6 +426,9 @@ def create_app(
             return "作業ディレクトリが存在しません"
         return message
 
+    def _is_http_url(url: Optional[str]) -> bool:
+        return bool(url) and url.lower().startswith(("http://", "https://"))
+
     def _load_launch_rows(entry) -> list[dict]:
         """ユーザー追加要件「個別に起動できるようにしたい」向け。各LaunchTargetの疎通確認結果を
         _launch_check_loopが更新したキャッシュから読むだけ(リクエスト経路でのI/Oを避ける)。
@@ -450,6 +453,10 @@ def create_app(
                 {
                     "name": target.name,
                     "url": target.url,
+                    # 画面へリンクとして出すURL。http(s)だけ(repos.yamlの書き間違いで javascript: 等が出ないように)
+                    "link_url": target.url if _is_http_url(target.url) else None,
+                    # 起動後にブラウザの新しいタブで自動で開くか(Web GUIだけ。APIやヘルスチェックは表示のみ)
+                    "auto_open": bool(target.open and _is_http_url(target.url)),
                     "state": state,
                     "can_stop": can_stop,
                     "reachable": reachable,
@@ -849,6 +856,21 @@ def create_app(
         if not result.ok:
             raise HTTPException(status_code=500, detail=result.message)
         return {"repo_id": repo_id, "ok": result.ok, "message": result.message, "pid": result.pid}
+
+    @app.get("/api/repos/{repo_id}/launch/{target_index}/reachable", dependencies=[auth.viewer])
+    async def api_repo_launch_reachable(repo_id: str, target_index: int) -> dict:
+        """起動したあと、画面が「URLに届いたら新しいタブで開く」ために、その場で1回だけ疎通を確かめる。
+
+        URLはrepos.yamlの固定値だけ(リクエストからは受け取らない)。10秒おきのキャッシュではなく、
+        起動直後の待ちに使うので、毎回確かめる(0.5秒で打ち切る)。urlが無ければ reachable は null。
+        """
+        entry = repo_registry.get(repo_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown repo_id: {repo_id}")
+        if not (0 <= target_index < len(entry.launch_targets)):
+            raise HTTPException(status_code=404, detail=f"unknown launch target index: {target_index}")
+        reachable = await asyncio.to_thread(check_target_reachable, entry.launch_targets[target_index])
+        return {"reachable": reachable}
 
     @app.post("/api/repos/{repo_id}/stop/{target_index}", dependencies=[auth.operator])
     async def api_repo_stop(repo_id: str, target_index: int) -> dict:

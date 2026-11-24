@@ -15,6 +15,9 @@
 #   3. 明確な起動コマンドが無いもの(RAGReel等、ビルド/IDE拡張/スクリプト集)
 #      -> launchは空、launch_noteに理由を記載(ダッシュボードは代わりに
 #         「フォルダを開く」のみ提示する)
+# url: 起動確認(疎通チェック)に使うURL。画面にもリンクとして出す。
+# open: Start のあと、urlに届いたらブラウザの新しいタブで自動で開く(既定 true)。
+#   API・ヘルスチェックだけのもの(Web画面が無いもの)は open: false にして、URLの表示だけにする。
 # 各コマンドはそのリポジトリの初回セットアップ(venv作成・npm install等)が
 # 済んでいる前提。未セットアップの場合、開いたコンソールにエラーがそのまま表示される
 # (Hub側で隠蔽・自動セットアップはしない)。
@@ -52,6 +55,7 @@ repos:
         command: "npx wrangler dev --port 8788"
         cwd: "worker"
         url: "http://127.0.0.1:8788"
+        open: false  # API(画面なし)
       - name: "Web dashboard"
         command: "npm run dev"
         cwd: "web"
@@ -102,6 +106,7 @@ repos:
         command: "uv run uvicorn app.main:app --port 8000 --reload"
         cwd: "backend"
         url: "http://localhost:8000/api/health"
+        open: false  # ヘルスチェック(画面なし)
       - name: "Frontend"
         command: "npm run dev"
         cwd: "frontend"
@@ -165,6 +170,7 @@ repos:
         command: "uvicorn api:app --reload --host 0.0.0.0 --port 8000"
         cwd: "."
         url: "http://localhost:8000"
+        open: false  # API(画面なし)
     launch_note: "事前にpython -m venv .venv && pip install -r requirements.txtでの環境構築が必要。cli.pyは1回限りの変換用CLIで常駐サービスではない。"
 
   - repo_id: local_llm_harness
@@ -177,9 +183,24 @@ repos:
         command: "uv run llh serve"
         cwd: "."
         url: "http://127.0.0.1:8800/health"
+        open: false  # ヘルスチェック(画面なし)
       - name: "見張り(Unsloth とセット)"
         command: "uv run llh autostart"
         cwd: "."
         # Unsloth Desktop の起動を見て、窓口と、LocalLLMHarness の config.toml の [[autostart.service]](例: ChapterLens のエンジン)を自動で起動する。
         # 上の「窓口」を単独で起動するより、こちらを使う(Unsloth を閉じると、起動したものも止まる)。urlは無し(常駐ポートを持たない)。
     launch_note: "事前に uv sync、config.toml / policy.toml の作成、環境変数 LLH_BACKEND_API_KEY(Unsloth の API キー)が必要。Hub から起動すると、Hub の環境変数を引き継ぐので、setx で保存したキーが要る(Hub を再起動してから)。Unsloth Desktop は別に起動しておく。"
+
+  - repo_id: chapterlens
+    display_name: "ChapterLens"
+    local_path: "../ChapterLens"
+    remote_url: "https://github.com/manato1201/ChapterLens.git"
+    branch: main
+    launch:
+      - name: "エンジン(ローカル)"
+        # Chrome 拡張(固定の ID)からだけ呼べるように --allow-origin を付ける。127.0.0.1:8787 だけで待つ。
+        command: "uv run python -m chapterlens serve --allow-origin chrome-extension://egcgicajchobpecnggcblcbnoadlnfai"
+        cwd: "engine"
+        url: "http://127.0.0.1:8787/health"
+        open: false  # ヘルスチェック(画面なし。操作は Chrome 拡張から)
+    launch_note: "Chrome 拡張の相手(エンジン)だけを起動・停止する。題名・大見出し(ローカル LLM)を使うなら、先に `uv run python -m chapterlens admin llm on` を一度実行し、窓口(LocalLLMHarness)も起動しておく。Unsloth とセットで `llh autostart` が起動したエンジンは、Hubの外で起動したものなので、ここからは止められない(Unsloth を閉じると止まる)。"

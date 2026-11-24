@@ -1404,6 +1404,16 @@ body.is-history .overview-card {
   color: var(--state-danger-text);
 }
 
+/* 起動した対象の URL(リンク)。長い URL は、列を押し広げず折り返す */
+.op-url {
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+.op-url-note {
+  margin-left: 4px;
+}
+
 .op-sync-cell {
   border-left: 1px solid var(--border-rim-subtle);
   padding-left: var(--space-16);

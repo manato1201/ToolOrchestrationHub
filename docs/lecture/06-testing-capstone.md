@@ -30,7 +30,7 @@
 Hub には、**外に影響する**処理があります(`git fetch`・`git pull`・新しい窓でのコマンド起動・Windows のトースト・Slack 送信)。テストが**本物を動かさない**ための工夫:
 
 - **差し替え**: `monkeypatch`(pytest)で、本物の関数を偽物に替える。
-- **フィクスチャ**: `tests/conftest.py` の `no_real_repo_sync` は、`RepoRegistry.load` を替えて、`create_app()` が**本物の 14 リポジトリへ `git fetch` しない**ようにする(起動時に 1 回走るため、何もしないと遅く、ネットワーク頼みになる)。
+- **フィクスチャ**: `tests/conftest.py` の `no_real_repo_sync` は、`RepoRegistry.load` を替えて、`create_app()` が**本物の 15 リポジトリへ `git fetch` しない**ようにする(起動時に 1 回走るため、何もしないと遅く、ネットワーク頼みになる)。
 - **時刻を引数に**: `is_open_at(at)`・`record_heartbeat(at=...)`・`check_once(now=...)`(能動の間引き)のように、**時刻を引数で受ける**設計にして、`sleep` せずに「30 秒後」を再現する(第 2・3 回で使った。ただし `rpc_check` の内部は `now` を受けない。第 2 回の注意)。
 - **一時フォルダ**: `tmp_path` / `tempfile` で、本物のファイルを壊さない。
 - **`TestClient`**: サーバーを起動せず、アプリへ直接リクエストを送る(第 5 回)。

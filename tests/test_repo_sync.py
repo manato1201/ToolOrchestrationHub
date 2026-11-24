@@ -41,10 +41,10 @@ def _commit_new_change(repo: Path, content: str = "v2") -> None:
     _git(["commit", "-m", "update"], repo)
 
 
-def test_repo_registry_loads_all_14_entries():
+def test_repo_registry_loads_all_15_entries():
     registry = RepoRegistry.load()
     entries = registry.all()
-    assert len(entries) == 14
+    assert len(entries) == 15
     for e in entries:
         assert e.remote_url.startswith("https://github.com/manato1201/")
         assert e.branch == "main"

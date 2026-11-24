@@ -1180,3 +1180,92 @@ def test_failed_launch_reason_does_not_expose_the_working_directory_path(tmp_pat
         client.post("/api/repos/sample/launch/0")
         body = client.get("/api/repos").text + client.get("/").text
         assert "作業ディレクトリが存在しません" in body and "secret" not in body
+
+
+def _write_repos_yaml_with_gui_and_api(tmp_path, local_dir_name: str, remote_path) -> str:
+    repos_path = tmp_path / "repos.yaml"
+    local_path = (tmp_path / local_dir_name).resolve()
+    repos_path.write_text(
+        f"""
+repos:
+  - repo_id: sample
+    display_name: "Sample"
+    local_path: "{str(local_path).replace(chr(92), '/')}"
+    remote_url: "{str(remote_path).replace(chr(92), '/')}"
+    branch: main
+    launch:
+      - name: "GUI"
+        command: "npm run dev"
+        cwd: "."
+        url: "http://127.0.0.1:1/app"
+      - name: "API"
+        command: "npm run api"
+        cwd: "."
+        url: "http://127.0.0.1:2/health"
+        open: false
+      - name: "Bad url"
+        command: "npm run bad"
+        cwd: "."
+        url: "javascript:alert(1)"
+""",
+        encoding="utf-8",
+    )
+    return str(repos_path)
+
+
+def test_dashboard_shows_target_urls_as_links_and_marks_which_open_automatically(tmp_path):
+    """起動する対象の URL を画面に出す(リンク)。Web GUI は Start で自動で開く印、API は表示だけ。http(s) 以外は出さない。"""
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_gui_and_api(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        page = client.get("/").text
+        assert 'href="http://127.0.0.1:1/app"' in page and 'href="http://127.0.0.1:2/health"' in page
+        assert "javascript:alert" not in page.replace('data-url=""', "")  # 危ないスキームは、リンクにも属性にも出ない
+        assert page.count("Start で自動で開きます") == 1  # GUI だけ
+        rows = {t["name"]: t for t in client.get("/api/repos").json()[0]["launch_targets"]}
+        assert rows["GUI"]["auto_open"] is True and rows["GUI"]["link_url"] == "http://127.0.0.1:1/app"
+        assert rows["API"]["auto_open"] is False and rows["API"]["link_url"] == "http://127.0.0.1:2/health"
+        assert rows["Bad url"]["auto_open"] is False and rows["Bad url"]["link_url"] is None
+
+
+def test_launch_reachable_endpoint_checks_the_configured_url_only(tmp_path, monkeypatch):
+    """起動後の待ち用: repos.yaml のURLにその場で届くかを返す。URLはリクエストから受け取らない。"""
+    remote, _local = _init_git_remote_and_clone(tmp_path, "sample")
+    repos_path = _write_repos_yaml_with_gui_and_api(tmp_path, "sample_local", remote)
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text(_REGISTRY_V1, encoding="utf-8")
+
+    checked = []
+
+    def fake_reachable(target, timeout_s=0.5):
+        checked.append(target.url)
+        return target.url.endswith("/app")
+
+    monkeypatch.setattr(app_module, "check_target_reachable", fake_reachable)
+    app = app_module.create_app(
+        registry_path=str(registry_path), db_path=str(tmp_path / "hub_state.sqlite3"), repos_path=repos_path
+    )
+    with TestClient(app) as client:
+        checked.clear()  # 背景の疎通ループの分は数えない
+        assert client.get("/api/repos/sample/launch/0/reachable").json() == {"reachable": True}
+        assert client.get("/api/repos/sample/launch/1/reachable").json() == {"reachable": False}
+        assert "http://127.0.0.1:1/app" in checked and "http://127.0.0.1:2/health" in checked
+        assert client.get("/api/repos/sample/launch/99/reachable").status_code == 404
+        assert client.get("/api/repos/nope/launch/0/reachable").status_code == 404
+
+
+def test_launch_button_script_waits_for_the_url_and_opens_a_tab():
+    """画面側(app.js)の取り決め: クリックの瞬間にタブを開き(ブロック回避)、届いたらそこへ移す。待ちは上限付き。"""
+    from pathlib import Path
+
+    js = (Path(app_module.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'window.open("about:blank", "_blank")' in js and "tab.opener = null" in js
+    assert "/launch/${btn.dataset.targetIndex}/reachable" in js
+    assert "OPEN_WAIT_MS = 90000" in js
+    assert "tab.location.href = btn.dataset.url" in js
