@@ -391,11 +391,22 @@ def test_page_wires_assets_with_cache_busting_and_a_noscript_refresh_fallback(tm
 
 
 def test_sync_button_carries_what_the_confirmation_dialog_needs(tmp_path):
-    """設計書の検証: 破壊的な操作(同期)に確認が入る。確認文に使う情報がボタンに載っている。"""
+    """設計書の検証: 破壊的な操作(同期)に確認が入る。確認文に使う情報がボタンに載っている。
+
+    2026-11-26: 確認は「長押し」(spring.js の holdButton。押し続けて満ちたときだけ onComplete → fetch)。
+    spring.js が無いときは、従来の確認ダイアログ。
+    """
     # 同期は管理画面(admin だけ。2026-11-11 に別ページ・別スクリプトへ分離)にある。ダッシュボード側にはもう無い。
     js = (app_module.BASE_DIR / "admin" / "admin.js").read_text(encoding="utf-8")
+    # 長押し: fetch は onComplete(満ちたとき)の中からだけ呼ばれる
+    hold = js[js.index("window.HubMotion.holdButton("):]
+    assert hold.index("onComplete") < hold.index("syncRepo(")
+    assert "aria-label" in js and "git pull --ff-only" in js  # 何が起きるかを、読み上げにも書く
+    spring_js = (app_module.BASE_DIR / "static" / "spring.js").read_text(encoding="utf-8")
+    assert 'addEventListener("click", (event) => event.preventDefault())' in spring_js  # 押してすぐ離しても実行しない
+    # spring.js が無いときの従来の確認
     assert "window.confirm(" in js
-    sync_handler = js[js.index('$$(".repo-sync-btn")'):]
+    sync_handler = js[js.rindex('$$(".repo-sync-btn")'):]
     assert sync_handler.index("window.confirm(") < sync_handler.index("fetch(")  # 確認してから初めて叩く
     dashboard_js = (app_module.BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
     assert "repo-sync-btn" not in dashboard_js and "/sync" not in dashboard_js

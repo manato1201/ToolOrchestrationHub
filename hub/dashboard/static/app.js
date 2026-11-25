@@ -273,6 +273,8 @@
     lastView = ui.view;
 
     refreshDrawer();
+    // セグメント(選択中の下地をばねで移す。spring.js)
+    if (window.HubMotion) window.HubMotion.syncSegments(card);
   }
 
   function selectTool(toolId) {
@@ -1042,25 +1044,29 @@
     btn.addEventListener("click", async (event) => {
       const target = event.currentTarget;
       target.disabled = true;
-      target.textContent = "Starting...";
+      // 読み込み → 完了(spring.js)。無ければ、文字だけで示す
+      const busy = window.HubMotion ? window.HubMotion.busy(target) : null;
+      const show = (text) => { if (busy) busy.text(text); else target.textContent = text; };
+      if (busy) busy.loading("起動中"); else target.textContent = "Starting...";
       const tab = prepareTab(target);
       try {
         const res = await fetch(`/api/repos/${target.dataset.repoId}/launch/${target.dataset.targetIndex}`, { method: "POST" });
         const body = await res.json();
         if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-        target.textContent = "Started";
-        pop(target);
-        const outcome = await openWhenReady(target, tab, (sec) => {
-          target.textContent = `Waiting... ${sec}s`;
-        });
+        if (!busy) pop(target);
+        const outcome = await openWhenReady(target, tab, (sec) => show(`URL を待っています ${sec}s`));
         if (outcome === "timeout") {
+          if (busy) busy.success("起動しました");
           window.alert("起動はしましたが、URL をタブで開けませんでした(まだ届いていない・または、ブロックされました)。行に出ている URL から、開いてください。");
+        } else if (busy) {
+          busy.success(outcome === "opened" ? "開きました" : "起動しました");
+          await busy.settle(1600);
         }
         window.location.reload();
       } catch (err) {
         if (tab && !tab.closed) tab.close();
         target.disabled = false;
-        target.textContent = originalText;
+        if (busy) busy.fail(); else target.textContent = originalText;
         window.alert(`起動に失敗しました: ${err}`);
       }
     });

@@ -34,6 +34,8 @@ uv run hub          # http://127.0.0.1:8790 でダッシュボードを起動
 
 **ChapterLens の起動・停止**(2026-11-24): 「リポジトリ」に ChapterLens を足しました(15 件目)。`Start: エンジン(ローカル)` で、Chrome 拡張の相手(`uv run python -m chapterlens serve`。拡張の固定の ID だけを許可、`127.0.0.1:8787`)を起動し、`Stop` で止めます。止められるのは**この Hub が起動したものだけ**です。Unsloth とセットの `llh autostart` が起動したエンジンは、Hub の外で起動したものなので、ここからは止められません(Unsloth を閉じると止まります)。題名・大見出し(ローカル LLM)を使うなら、先に `uv run python -m chapterlens admin llm on` を一度実行し、窓口も起動しておきます。
 
+**状態変化の動き(ばね)**(2026-11-26): 絞り込み・表示・並べ替えのチップは、選択中の下地がばねで滑って移ります。`Start` は「回る輪 + 状態の文字 → ✓ と緑」で読み込みから完了までを示し、失敗すると揺れます。管理画面の `Sync`(git pull)は、確認ダイアログの代わりに**長押し(約 1.2 秒)**で実行します(押してすぐ離しても実行しない・Space / Enter の長押しでも可)。動きは designbookmark.com の Motion 部品(Segmented control・Loading to success・Hold to publish)を元に、**ばねの値だけを合わせて書き直した**もの(元のコードはライセンスの記載が無いので使っていない)。値は `style.css` の `--spring-*`、計算は `static/spring.js`。動きを減らす設定では、すぐ切り替わります。
+
 ```bash
 # 各ツールからの信号(認証を必須にしたときは X-API-Key を付ける)
 curl -X POST http://127.0.0.1:8790/api/heartbeat/sound_middleware

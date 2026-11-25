@@ -89,7 +89,7 @@ def test_one_shot_pop_and_press_feedback_stay_within_the_motion_budget():
     assert "scale(var(--enter-scale, 1))" in PARTS_CSS
     assert re.search(r"\.btn-reload:not\(:disabled\):active[^{]*\{\s*transform: scale\(0\.96\)", PARTS_CSS)
     assert "function pop(" in APP_JS and "popChangedStates()" in APP_JS
-    assert APP_JS.count("pop(target)") >= 3  # 起動 / 停止 / まとめて起動の完了
+    assert APP_JS.count("pop(target)") >= 3  # 起動(spring.js が無いとき) / 停止 / まとめて起動の完了
     assert 'steps li[data-step="done"] .steps-glyph' in PARTS_CSS  # ステップの完了
 
 
@@ -354,3 +354,41 @@ def test_view_switch_pushes_the_newly_shown_side_in_with_the_shared_enter_motion
 def test_drawer_pauses_auto_refresh_and_closes_with_escape():
     assert "historyMode || drawerToolId !== null" in APP_JS
     assert re.search(r'event\.key === "Escape"[\s\S]{0,200}closeDrawer\(\)', APP_JS)
+
+
+# ---------------------------------------------------------------- 状態変化(ばね。2026-11-26)
+
+SPRING_JS = (app_module.BASE_DIR / "static" / "spring.js").read_text(encoding="utf-8")
+
+
+def test_spring_values_match_the_designbookmark_components():
+    """ばねの値(強さ 減衰)は、元の Motion 部品と同じ。style.css の :root に 1 か所だけ置く。"""
+    expected = {
+        "--spring-seg": "300 20",
+        "--spring-busy-width": "300 22", "--spring-busy-label": "400 30", "--spring-busy-spin": "300 28",
+        "--spring-busy-done": "220 20", "--spring-busy-fill": "200 30", "--spring-busy-check": "120 20",
+        "--hold-ms": "1200", "--hold-done-ms": "1700",
+        "--spring-hold-release": "260 14", "--spring-hold-morph": "320 20",
+        "--spring-hold-squash": "520 20", "--spring-hold-shake": "700 9",
+    }
+    for name, value in expected.items():
+        assert re.findall(rf"{name}:\s*([^;]+);", STYLE_CSS) == [value], name
+
+
+def test_springs_add_no_keyframes_and_jump_for_reduced_motion():
+    """ばねは JS(@keyframes を足さない)。動きを減らす設定では、ばねを使わず、すぐ目標の値にする。"""
+    assert "@keyframes" not in SPRING_JS
+    assert '"(prefers-reduced-motion: reduce)"' in SPRING_JS
+    to_body = SPRING_JS[SPRING_JS.index("to(target, opts = {})"): SPRING_JS.index("set(v)")]
+    assert "if (reduced())" in to_body and "s.x = target" in to_body
+    # 1 フレームは最大 1/30 秒・4 分割の半陰的オイラー(速度を先に更新)
+    assert "Math.min((now - last) / 1000, 1 / 30)" in SPRING_JS and "SUBSTEPS = 4" in SPRING_JS
+    assert SPRING_JS.index("s.v += a * h") < SPRING_JS.index("s.x += s.v * h")
+
+
+def test_spring_script_is_loaded_before_the_scripts_that_use_it():
+    index = (app_module.BASE_DIR / "templates" / "index.html").read_text(encoding="utf-8")
+    admin = (app_module.BASE_DIR / "templates" / "admin.html").read_text(encoding="utf-8")
+    assert index.index("/static/spring.js") < index.index("/static/app.js")
+    assert admin.index("/static/spring.js") < admin.index('src="/admin.js"')
+    assert "HubMotion.syncSegments(card)" in APP_JS and "HubMotion.busy(target)" in APP_JS

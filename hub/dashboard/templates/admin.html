@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/parts.css?v={{ asset_version }}">
   <script src="/static/auth.js?v={{ asset_version }}" defer></script>
   {#- 管理画面のスクリプトは /static の外。サーバーが admin に限って返す(viewer / operator には配らない)。 -#}
+  <script src="/static/spring.js?v={{ asset_version }}" defer></script>
   <script src="/admin.js" defer></script>
 </head>
 <body>
@@ -75,7 +76,7 @@
             </td>
             <td class="op-sync-cell">
               {% if r.can_sync %}
-                <button class="btn-reload repo-sync-btn" data-repo-id="{{ r.repo_id }}" data-repo-name="{{ r.display_name }}" data-commits-behind="{{ r.commits_behind }}" type="button">Sync</button>
+                <button class="btn-reload repo-sync-btn" data-repo-id="{{ r.repo_id }}" data-repo-name="{{ r.display_name }}" data-commits-behind="{{ r.commits_behind }}" type="button" title="長押し(約 1.2 秒)で、リモートの最新へ同期します(git pull --ff-only)。{% if r.commits_behind %}{{ r.commits_behind }}件の更新が{% else %}リモートの更新が{% endif %}ワーキングツリーに取り込まれます">Sync</button>
               {% else %}
                 <span class="source-meta">—</span>
               {% endif %}

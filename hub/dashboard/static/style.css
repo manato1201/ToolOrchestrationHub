@@ -18,6 +18,22 @@
 :root {
   color-scheme: dark;
 
+  /* ばね(強さ 減衰。質量 1)。状態変化の動き(spring.js)が読む。2026-11-26。
+     値は designbookmark.com の Motion 部品(Segmented control・Loading to success・Hold to publish)と同じにした */
+  --spring-seg: 300 20;
+  --spring-busy-width: 300 22;
+  --spring-busy-label: 400 30;
+  --spring-busy-spin: 300 28;
+  --spring-busy-done: 220 20;
+  --spring-busy-fill: 200 30;
+  --spring-busy-check: 120 20;
+  --hold-ms: 1200;
+  --hold-done-ms: 1700;
+  --spring-hold-release: 260 14;
+  --spring-hold-morph: 320 20;
+  --spring-hold-squash: 520 20;
+  --spring-hold-shake: 700 9;
+
   /* Surfaces — 3段階のフラットマテリアル(shadowは使わない) */
   --surface-void: #0e0e0e;
   --surface-canvas: #151515;
